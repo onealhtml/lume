@@ -51,19 +51,24 @@ def _dwm_attr(win_id, attr, value):
 def style_window(win_id, mode="blur"):
     """Vidro do sistema atras da janela. Retorna True se o sistema desenha fundo e cantos
     (a interface entao nao arredonda nem pinta o fundo opaco).
-    mode: "blur" = desfoque leve, fundo bem visivel (padrao);
-          "acrylic" = acrilico do Windows 11, desfoque forte e cinza."""
+    mode: "blur" = desfoque leve, fundo bem visivel;
+          "acrylic" = acrilico com tinta propria quase transparente;
+          "system" = acrilico de sistema do Windows 11 (desfoque forte e camada cinza)."""
     if not IS_WIN or sys.getwindowsversion().build < 22000:
         return False
     try:
         _dwm_attr(win_id, 20, 1)  # DWMWA_USE_IMMERSIVE_DARK_MODE
         _dwm_attr(win_id, 33, 2)  # DWMWA_WINDOW_CORNER_PREFERENCE = arredondado
-        if mode == "acrylic":
+        if mode == "system":
             margins = (ctypes.c_int * 4)(-1, -1, -1, -1)
             ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(win_id, margins)
-            return _dwm_attr(win_id, 38, 3)  # DWMWA_SYSTEMBACKDROP_TYPE = acrilico
-        # desfoque classico (ACCENT_ENABLE_BLURBEHIND): sem a camada cinza do acrilico
-        accent = _AccentPolicy(3, 0, 0, 0)
+            return _dwm_attr(win_id, 38, 3)  # DWMWA_SYSTEMBACKDROP_TYPE = acrilico (com camada cinza fixa)
+        if mode == "acrylic":
+            # acrilico com tinta escolhida (como o TranslucentTB): cor ABGR, aqui quase transparente
+            accent = _AccentPolicy(4, 2, 0x18141210, 0)
+        else:
+            # desfoque classico (ACCENT_ENABLE_BLURBEHIND): mais leve, sem ruido nem tinta
+            accent = _AccentPolicy(3, 0, 0, 0)
         data = _CompositionData(19, ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p), ctypes.sizeof(accent))
         return bool(ctypes.windll.user32.SetWindowCompositionAttribute(win_id, ctypes.byref(data)))
     except (OSError, AttributeError):

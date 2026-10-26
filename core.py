@@ -11,7 +11,8 @@ import time
 import tinytuya
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CONFIG = {"id": "", "ip": "Auto", "key": "", "version": "3.5", "name": "Lâmpada", "last_ip": ""}
+DEFAULT_CONFIG = {"id": "", "ip": "Auto", "key": "", "version": "3.5", "name": "Lâmpada", "last_ip": "",
+                  "glass": "acrylic"}  # vidro no Windows: "acrylic" ou "blur"
 
 
 def config_dir():

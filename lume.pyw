@@ -83,6 +83,17 @@ class Backend(QObject):
     def systemGlass(self):
         return self._app.system_glass
 
+    @Property(bool, constant=True)
+    def isWindows(self):
+        return platform_tweaks.IS_WIN
+
+    @Slot(str)
+    def setGlass(self, mode):
+        """Troca o vidro na hora (configuracoes > Vidro) e guarda a escolha."""
+        self._app.cfg["glass"] = mode
+        core.save_config(self._app.cfg)
+        self._app.apply_glass()
+
     @Property(bool, notify=stateChanged)
     def windowed(self):
         """Sem bandeja o painel vira janela comum, com moldura do sistema: fundo solido e reto."""
@@ -132,6 +143,7 @@ class Backend(QObject):
         old = self._app.cfg
         new = {k: str(cfg.get(k, core.DEFAULT_CONFIG[k])).strip() for k in core.DEFAULT_CONFIG}
         new["last_ip"] = old.get("last_ip", "") if new["id"] == old["id"] else ""
+        new["glass"] = old.get("glass", core.DEFAULT_CONFIG["glass"])  # escolhido a parte, ja salvo
         self._app.cfg = new
         core.save_config(new)
         self._app.lamp.connect()
@@ -301,14 +313,20 @@ class App:
         self.was_active = False
         self.window.show()
         win_id = int(self.window.winId())
-        if not self.system_glass and platform_tweaks.style_window(win_id, os.environ.get("LUME_GLASS", "blur")):
-            self.system_glass = True
-            self.backend.stateChanged.emit()
+        if not self.system_glass:
+            self.apply_glass()
         self.window.raise_()
         self.window.requestActivate()
         platform_tweaks.focus_window(win_id)
         self.backend.showRequested.emit(view)
         threading.Thread(target=self.lamp.refresh, daemon=True).start()
+
+    def apply_glass(self):
+        mode = os.environ.get("LUME_GLASS") or self.cfg.get("glass", "acrylic")
+        ok = platform_tweaks.style_window(int(self.window.winId()), mode)
+        if ok != self.system_glass:
+            self.system_glass = ok
+            self.backend.stateChanged.emit()
 
     def hide_panel(self):
         if not self.tray:  # sem bandeja nao ha como reabrir: so minimiza

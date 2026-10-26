@@ -139,6 +139,8 @@ Window {
         power: '<path d="M12 3v8"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
         back: '<path d="M15 18l-6-6 6-6"/>'
     })
+    // #rrggbb sem o alfa (toString() da #aarrggbb quando a cor e translucida)
+    function rgbHex(c) { return "#" + [c.r, c.g, c.b].map(v => ("0" + Math.round(v * 255).toString(16)).slice(-2)).join("") }
     component Icon: Image {
         property string name
         property color tint: ink
@@ -147,7 +149,7 @@ Window {
         sourceSize: Qt.size(width * 3, height * 3)
         smooth: true
         source: "data:image/svg+xml;utf8," + encodeURIComponent(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + tint.toString().slice(0, 7)
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + rgbHex(tint)
             + '" stroke-opacity="' + tint.a + '" stroke-width="' + stroke + '" stroke-linecap="round" stroke-linejoin="round">'
             + icons[name] + '</svg>')
     }
@@ -762,6 +764,35 @@ Window {
                                 width: 182; height: 182; radius: 12; color: "white"
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 Image { id: qrImg; anchors.fill: parent; anchors.margins: 6; smooth: false; fillMode: Image.PreserveAspectFit }
+                            }
+                        }
+                    }
+
+                    // so no Windows: acrilico (desfoque forte, como o TranslucentTB) ou leve (fundo mais nitido)
+                    Glass {
+                        visible: backend.isWindows
+                        width: parent.width; height: 46; radius: 18
+                        Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; text: "Vidro" }
+                        Rectangle {
+                            x: 96; width: parent.width - 96 - 12; height: 28
+                            anchors.verticalCenter: parent.verticalCenter
+                            radius: 9; color: Qt.rgba(0, 0, 0, 0.25)
+                            Row {
+                                anchors.fill: parent; anchors.margins: 2
+                                Repeater {
+                                    model: [["acrylic", "Acrílico"], ["blur", "Leve"]]
+                                    Rectangle {
+                                        required property var modelData
+                                        readonly property bool chosen: (cfg.glass || "acrylic") === modelData[0]
+                                        width: parent.width / 2; height: parent.height; radius: 7
+                                        color: chosen ? Qt.rgba(1, 1, 1, 0.2) : "transparent"
+                                        Txt { anchors.centerIn: parent; text: modelData[1]; font.pixelSize: 12; color: parent.chosen ? ink : ink2 }
+                                        MouseArea {
+                                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                            onClicked: { backend.setGlass(modelData[0]); cfg = backend.getConfig() }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

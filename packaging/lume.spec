@@ -19,6 +19,28 @@ a = Analysis(
               "PySide6.QtPdf", "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtDesigner"],
     noarchive=False,
 )
+
+if sys.platform.startswith("linux"):
+    # Libs que tem que vir da distro: as do build (Ubuntu 22.04) sao velhas e quebram as do sistema
+    # carregadas no mesmo processo. Ex.: o Mesa do Fedora 44 pede GLIBCXX_3.4.32, nosso libstdc++ nao tem,
+    # o EGL nao carrega e o Qt Quick aborta ("Failed to initialize graphics backend for OpenGL").
+    HOST_LIBS = {
+        "libstdc++", "libgcc_s", "libexpat", "libz", "libzstd", "liblzma",
+        "libX11", "libX11-xcb", "libXau", "libXdmcp", "libXext", "libXrender", "libXfixes", "libXi",
+        "libXrandr", "libXcursor", "libXinerama", "libXcomposite", "libXdamage",
+        "libxcb-glx", "libxcb-randr", "libxcb-render", "libxcb-shape", "libxcb-shm", "libxcb-sync",
+        "libxcb-xfixes", "libxcb-xkb",
+        "libglib-2.0", "libgio-2.0", "libgobject-2.0", "libgmodule-2.0", "libgthread-2.0",
+        "libpcre", "libpcre2-8", "libmount", "libblkid", "libselinux",
+        # GTK do tema do Qt (libqgtk3): usa o GTK do sistema, ou o plugin simplesmente nao carrega
+        "libgtk-3", "libgdk-3", "libgdk_pixbuf-2.0", "libatk-1.0", "libatk-bridge-2.0", "libatspi",
+        "libcairo", "libcairo-gobject", "libpango-1.0", "libpangocairo-1.0", "libpangoft2-1.0",
+        "libepoxy", "libharfbuzz", "libfribidi", "libthai", "libdatrie", "libgraphite2", "libpixman-1",
+        "libfontconfig", "libfreetype", "libpng16", "libjpeg",
+    }
+    # so o nome exato: as libs do Pillow tem hash no nome (libxcb-9065bb12.so...) e ficam
+    a.binaries = [b for b in a.binaries if os.path.basename(b[0]).split(".so")[0] not in HOST_LIBS]
+
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

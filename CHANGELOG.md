@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.2]
+
+- The Linux AppImage and tar.gz open again on newer distros (Fedora 44 and others): they no longer
+  ship system libraries such as libstdc++ that broke the graphics driver, which made Lume close
+  right at startup.
+
 ## [1.1.1]
 
 - The brightness percentage turns dark as soon as the bright part of the bar reaches it (it stayed

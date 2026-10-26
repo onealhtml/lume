@@ -1,4 +1,4 @@
-"""Controle de lampada Tuya (Positivo, Smart Life, etc.) pela rede local.
+"""Lume: controle de lampada Tuya (Positivo, Smart Life, etc.) pela rede local.
 Fica na bandeja do Windows: clique no icone abre o painel rapido, botao direito abre o menu."""
 import ctypes
 import json
@@ -11,16 +11,17 @@ import winreg
 import pystray
 import tinytuya
 import webview
-from PIL import Image, ImageDraw
-
 import smartlife_qr
+from icons import tray_icon
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 UI_PATH = os.path.join(APP_DIR, "ui", "index.html")
 DEFAULT_CONFIG = {"id": "", "ip": "Auto", "key": "", "version": "3.5", "name": "Lâmpada", "last_ip": ""}
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-RUN_NAME = "LampadaTuya"
+RUN_NAME = "Lume"
+OLD_RUN_NAMES = ("LampadaTuya",)
+ICON_PATH = os.path.join(APP_DIR, "assets", "lume.ico")
 
 # tamanho do painel (CSS px); bordas arredondadas e sombra vem do proprio Windows (DWM)
 PANEL_W, PANEL_H, MARGIN = 340, 470, 0
@@ -50,6 +51,11 @@ def autostart_enabled():
 
 def set_autostart(enable):
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        for old in OLD_RUN_NAMES:  # entrada de quando o app ainda nao se chamava Lume
+            try:
+                winreg.DeleteValue(k, old)
+            except OSError:
+                pass
         if enable:
             pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
             winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ, f'"{pythonw}" "{os.path.abspath(__file__)}"')
@@ -91,14 +97,12 @@ def force_foreground(hwnd):
         user32.AttachThreadInput(me, fg_thread, False)
 
 
-def make_icon(rgb=None):
-    """Lampada desenhada; rgb=None = desligada/desconectada."""
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.ellipse((10, 4, 54, 48), fill=rgb or (150, 150, 160))
-    d.rectangle((22, 44, 42, 58), fill=(205, 205, 212))
-    d.line((22, 50, 42, 50), fill=(120, 120, 130), width=2)
-    return img
+def hide_from_taskbar(hwnd):
+    """Janela de ferramenta: sem botao na barra de tarefas nem no Alt+Tab, como um menu da bandeja."""
+    GWL_EXSTYLE, WS_EX_TOOLWINDOW, WS_EX_APPWINDOW = -20, 0x80, 0x40000
+    user32 = ctypes.windll.user32
+    style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, (style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW)
 
 
 def kelvin_rgb(temp_pct):
@@ -378,11 +382,11 @@ class App:
         self.state_lock = threading.Lock()
         self.lamp = Lamp(lambda: self.cfg, self.on_state)
         self.window = webview.create_window(
-            "Lâmpada", UI_PATH, js_api=Api(self), width=PANEL_W + 2 * MARGIN, height=PANEL_H + 2 * MARGIN,
+            "Lume", UI_PATH, js_api=Api(self), width=PANEL_W + 2 * MARGIN, height=PANEL_H + 2 * MARGIN,
             frameless=True, transparent=True, on_top=True, hidden=True, resizable=False, shadow=False,
             easy_drag=False, background_color="#000000",
         )
-        self.tray = pystray.Icon("lampada", make_icon(), "Lâmpada", pystray.Menu(
+        self.tray = pystray.Icon("lume", tray_icon(), "Lume", pystray.Menu(
             pystray.MenuItem("Abrir", lambda: self.toggle_panel(), default=True),
             pystray.MenuItem(lambda _: "Desligar" if self.lamp.state["on"] else "Ligar",
                              lambda: self.lamp.power(not self.lamp.state["on"])),
@@ -394,7 +398,7 @@ class App:
         self.tray.run_detached()
         self.window.events.closing += self._on_closing
         try:
-            webview.start(self._started)
+            webview.start(self._started, icon=ICON_PATH)
         finally:
             self.tray.stop()
 
@@ -417,9 +421,9 @@ class App:
                 rgb = self.lamp.tray_rgb()
                 if rgb != self.tray_rgb:  # recriar o icone a cada arrasto do slider e caro
                     self.tray_rgb = rgb
-                    self.tray.icon = make_icon(rgb)
+                    self.tray.icon = tray_icon(rgb)
                 status = state["status"] or ("acesa" if state["on"] else "apagada")
-                self.tray.title = f"{self.cfg['name']} – {status}"[:127]  # limite do Windows
+                self.tray.title = f"Lume – {self.cfg['name']} {status}"[:127]  # limite do Windows
                 self.tray.update_menu()
             except Exception:  # noqa: BLE001 - o icone nao pode derrubar o controle da lampada
                 pass
@@ -458,6 +462,8 @@ class App:
         # resize/move do pywebview usam pixels logicos e rodam na thread da janela
         self.window.resize(PANEL_W + 2 * MARGIN, PANEL_H + 2 * MARGIN)
         self.window.move(round(x / scale), round(y / scale))
+        if not self.glass_applied:
+            hide_from_taskbar(self.window.native.Handle.ToInt32())  # antes de mostrar, senao o botao fica
         self.window.show()
         if not self.glass_applied:
             from System.Drawing import Color  # disponivel depois que o pywebview carrega o .NET
@@ -502,4 +508,6 @@ class App:
 
 
 if __name__ == "__main__":
+    # identidade propria no Windows, em vez de aparecer como "Python"
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Lume")
     App().run()

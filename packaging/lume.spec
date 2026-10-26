@@ -44,6 +44,6 @@ if IS_MAC:
             "LSUIElement": True,  # so na barra de menus, sem icone no Dock
             "NSHighResolutionCapable": True,
             # macOS 15+ pede permissao para falar com aparelhos da rede local
-            "NSLocalNetworkUsageDescription": "O Lume conversa com a sua lâmpada pela rede local.",
+            "NSLocalNetworkUsageDescription": "Lume talks to your lamp over the local network.",
         },
     )

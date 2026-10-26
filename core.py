@@ -10,10 +10,12 @@ import time
 
 import tinytuya
 
+from i18n import _
+
 FROZEN = getattr(sys, "frozen", False)  # rodando do executavel gerado pelo PyInstaller
 # arquivos do app (ui/, assets/): no executavel ficam na pasta temporaria/interna do PyInstaller
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_CONFIG = {"id": "", "ip": "Auto", "key": "", "version": "3.5", "name": "Lâmpada", "last_ip": "",
+DEFAULT_CONFIG = {"id": "", "ip": "Auto", "key": "", "version": "3.5", "name": "", "last_ip": "",
                   "glass": "acrylic"}  # vidro no Windows: "acrylic" ou "blur"
 
 
@@ -129,7 +131,7 @@ class Lamp:
         self.on_change = on_change
         self.dev = None
         self.state = {"connected": False, "on": False, "mode": "white", "bright": 100,
-                      "temp": 50, "h": 30, "s": 100, "status": "Desconectado"}
+                      "temp": 50, "h": 30, "s": 100, "status": _("Disconnected")}
         self._pending = {}
         self._last_send = 0.0
         self._known = {}  # ultimo valor de cada DP que a lampada confirmou (para so mandar o que mudou)
@@ -146,9 +148,9 @@ class Lamp:
             self.dev = None
         cfg = self.get_cfg()
         if not cfg["id"] or not cfg["key"]:
-            self._update(connected=False, status="Configure a lâmpada")
+            self._update(connected=False, status=_("Set up the lamp"))
             return
-        self._update(connected=False, status="Conectando…")
+        self._update(connected=False, status=_("Connecting…"))
         threading.Thread(target=self._connect_loop, args=(gen,), daemon=True).start()
 
     def _connect_loop(self, gen):
@@ -173,9 +175,9 @@ class Lamp:
                 if found and found.get("ip"):
                     st, dev = self._open(cfg, found["ip"])
         except Exception as e:  # noqa: BLE001
-            return f"Erro: {e}"[:120]
+            return (_("Error: %s") % e)[:120]
         if not (st and "dps" in st):
-            return "Lâmpada não respondeu. Ela está ligada no interruptor?"
+            return _("The lamp didn't answer. Is it switched on at the wall?")
         with self._cv:
             if gen != self._gen:
                 return None
@@ -202,7 +204,7 @@ class Lamp:
         with self._cv:
             if dev is not self.dev:
                 return  # ja estamos reconectando
-        self._update(connected=False, status=f"Conexão perdida ({err}). Reconectando…"[:120])
+        self._update(connected=False, status=(_("Connection lost (%s). Reconnecting…") % err)[:120])
         self.connect()
 
     def refresh(self):
@@ -217,7 +219,7 @@ class Lamp:
             except Exception:  # noqa: BLE001
                 st = None
         if not (st and "dps" in st):
-            self._lost(dev, (st or {}).get("Error", "sem resposta"))
+            self._lost(dev, (st or {}).get("Error", _("no response")))
             return
         with self._cv:
             # nao sobrescreve o que o usuario acabou de mudar e ainda nao chegou na lampada

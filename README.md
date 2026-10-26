@@ -5,68 +5,95 @@
 <h1 align="center">Lume</h1>
 
 <p align="center">
-  Painel rápido na bandeja para controlar uma lâmpada RGB Tuya<br>
-  (Positivo Casa Inteligente, Smart Life etc.) direto pela rede local, sem nuvem.<br>
-  Windows, Linux e macOS.
+  A quick tray panel to control a Tuya RGB bulb (Smart Life, Positivo Casa Inteligente and other<br>
+  Tuya-based brands) straight over your local network, no cloud involved.<br>
+  Windows, Linux and macOS.
 </p>
 
-- Clique no ícone da bandeja (ou da barra de menus, no macOS): abre o painel com brilho, temperatura do branco, cores e roda de cores
-- Rodinha do mouse e setas do teclado funcionam nos controles
-- Reconecta sozinho se a lâmpada for desligada no interruptor ou mudar de IP
-- Não ocupa a barra de tarefas nem o Dock
+<p align="center"><a href="README.pt-BR.md">Leia em português</a></p>
 
-## Baixar
+- Click the tray icon (the menu bar icon on macOS) to open the panel: brightness, white temperature,
+  colour presets and a colour wheel
+- Mouse wheel and keyboard arrows work on the sliders
+- Reconnects by itself when the lamp is switched off at the wall or gets a new IP
+- Stays out of the taskbar and the Dock
+- Follows the system language (English, Portuguese, Spanish, French, German, Italian, Japanese,
+  Simplified Chinese)
 
-Instaladores prontos para Windows, Linux e macOS na página de
-[Releases](https://github.com/onealhtml/lume/releases/latest).
+## Download
 
-## Rodar pelo código
+Get the latest version from [Releases](https://github.com/onealhtml/lume/releases/latest):
 
-Precisa de Python 3.10 ou mais novo.
-
-**Windows**
-
-```
-py -m pip install -r requirements.txt
-pyw lume.pyw
-```
-
-**Linux / macOS**
-
-```
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python lume.pyw
-```
-
-Na primeira vez abre a tela de configurações. Use **Login Smart Life**: no app Smart Life, vá em
-Eu › engrenagem › Conta e segurança › Código de usuário, cole o código, escaneie o QR e clique em
-**Salvar e conectar**. A lâmpada precisa estar pareada no Smart Life (ou Tuya Smart).
-
-A opção **Iniciar com o sistema** cria a entrada certa para cada sistema (registro no Windows,
-`~/.config/autostart` no Linux, LaunchAgent no macOS).
-
-### Observações por sistema
-
-- **Windows 11**: o painel usa o vidro acrílico do próprio sistema.
-- **Linux**: o GNOME só mostra ícones de bandeja com a extensão *AppIndicator*. Sem bandeja, o Lume
-  abre como janela comum. No Wayland o sistema decide onde a janela aparece.
-- **macOS**: o ícone fica na barra de menus; "Fechar o Lume" fica nas configurações.
-
-## Arquivos
-
-| Arquivo | O que é |
+| System | File |
 |---|---|
-| `lume.pyw` | o app: bandeja, janela e a ponte com a interface |
-| `ui/Main.qml` | a interface (Qt Quick) |
-| `core.py` | configuração, iniciar com o sistema e a conexão com a lâmpada |
-| `smartlife_qr.py` | login por QR code no Smart Life para pegar a chave local |
-| `platform_tweaks.py` | ajustes de cada sistema (vidro do Windows, esconder do Dock no macOS) |
-| `icons.py` | desenha o ícone da bandeja na cor da lâmpada; `python icons.py` recria `assets/` |
+| Windows 10/11 | `Lume-…-Windows-Setup.exe` |
+| Linux | `Lume-…-Linux-x86_64.AppImage` (or the `.tar.gz`) |
+| macOS, Apple Silicon (M1 and later) | `Lume-…-macOS-arm64.dmg` |
+| macOS, Intel | `Lume-…-macOS-x86_64.dmg` |
 
-Para gerar os instaladores: `packaging/` tem o spec do PyInstaller, o script do Inno Setup
-(Windows) e os scripts de AppImage (Linux) e DMG (macOS). Ao publicar uma tag `vX.Y.Z`, o
-workflow `.github/workflows/release.yml` compila nos três sistemas e cria o Release.
+What changed in each version is in the [changelog](CHANGELOG.md).
 
-A configuração (incluindo a chave local da lâmpada) fica fora do repositório, em
-`%APPDATA%\Lume` (Windows), `~/.config/lume` (Linux) ou `~/Library/Application Support/Lume` (macOS).
+## Install
+
+**Windows:** run the installer; it doesn't need administrator rights. Lume isn't signed with a paid
+certificate, so SmartScreen may warn you: click *More info* → *Run anyway*.
+
+**Linux:** make the AppImage executable and run it:
+
+```
+chmod +x Lume-*.AppImage
+./Lume-*.AppImage
+```
+
+If it complains about FUSE, install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`) or run it with
+`--appimage-extract-and-run`.
+
+**macOS:** drag Lume into Applications. Lume isn't notarized by Apple, so the first time right-click it →
+*Open* → *Open*. If macOS says the app is "damaged", run:
+
+```
+xattr -dr com.apple.quarantine /Applications/Lume.app
+```
+
+## Setup
+
+The first time, Lume opens its settings. Click **Smart Life login**, then in the Smart Life app go to
+Me › gear › Account and Security › User Code, paste the code, scan the QR code and click
+**Save and connect**. The lamp has to be paired in Smart Life (or Tuya Smart).
+
+**Start with the system** adds Lume to the right place on each system (the registry on Windows,
+`~/.config/autostart` on Linux, a LaunchAgent on macOS).
+
+### Notes per system
+
+- **Windows 11:** the panel uses the system's acrylic glass, or a lighter blur (Settings › Glass).
+- **Linux:** GNOME only shows tray icons with the *AppIndicator* extension. Without a tray, Lume opens
+  as a regular window. On Wayland the system decides where windows appear.
+- **macOS:** the icon lives in the menu bar; "Quit Lume" is in Settings.
+
+## Run from source
+
+Requires Python 3.10 or newer.
+
+```
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt      # Windows: .venv\Scripts\pip
+.venv/bin/python lume.pyw                      # Windows: .venv\Scripts\pythonw lume.pyw
+```
+
+| File | What it is |
+|---|---|
+| `lume.pyw` | the app: tray, window and the bridge to the interface |
+| `ui/Main.qml` | the interface (Qt Quick) |
+| `core.py` | settings, start with the system and the connection to the lamp |
+| `i18n.py` | translations; the code is written in English |
+| `smartlife_qr.py` | Smart Life QR login to get the local key |
+| `platform_tweaks.py` | per-system tweaks (Windows glass, hiding from the macOS Dock) |
+| `icons.py` | draws the tray icon in the lamp's colour; `python icons.py` rebuilds `assets/` |
+
+`packaging/` has the PyInstaller spec, the Inno Setup script (Windows) and the AppImage (Linux) and
+DMG (macOS) scripts. Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`, which builds on all
+three systems and publishes a Release with that version's section of the changelog.
+
+Settings, including the lamp's local key, live outside the repository: `%APPDATA%\Lume` (Windows),
+`~/.config/lume` (Linux) or `~/Library/Application Support/Lume` (macOS).

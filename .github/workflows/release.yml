@@ -98,4 +98,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la out
-          gh release create "$GITHUB_REF_NAME" out/* --title "Lume ${GITHUB_REF_NAME#v}" --notes-file packaging/RELEASE_NOTES.md
+          # texto do Release = a secao desta versao no CHANGELOG.md (instrucoes ficam no README)
+          awk -v h="## [${GITHUB_REF_NAME#v}]" '$0 == h {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md sem a secao ${GITHUB_REF_NAME#v}"; exit 1; }
+          gh release create "$GITHUB_REF_NAME" out/* --title "Lume ${GITHUB_REF_NAME#v}" --notes-file notes.md

@@ -7,14 +7,16 @@ import threading
 import time
 
 import tinytuya
-from PySide6.QtCore import QObject, QPoint, QRect, Property, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QLocale, QObject, QPoint, QRect, Property, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QCursor, QFont, QFontDatabase, QGuiApplication, QIcon, QPixmap
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 import core
+import i18n
 import platform_tweaks
 import smartlife_qr
+from i18n import _
 from icons import tray_icon
 
 APP_DIR = core.APP_DIR
@@ -82,6 +84,11 @@ class Backend(QObject):
     @Property(bool, notify=stateChanged)
     def systemGlass(self):
         return self._app.system_glass
+
+    @Property("QVariantMap", constant=True)
+    def strings(self):
+        """Traducoes do idioma do sistema (texto em ingles -> traduzido); vazio em ingles."""
+        return i18n.table()
 
     @Property(bool, constant=True)
     def isWindows(self):
@@ -183,7 +190,7 @@ class Backend(QObject):
                 devices = smartlife_qr.poll(token, user_code.strip())
                 self.smartlifeResult.emit({"pending": True} if devices is None else {"devices": devices})
             except Exception as e:  # noqa: BLE001
-                self.smartlifeResult.emit({"error": f"Falha no login: {e}"})
+                self.smartlifeResult.emit({"error": _("Login failed: %s") % e})
         threading.Thread(target=job, daemon=True).start()
 
 
@@ -196,6 +203,7 @@ class App:
         self.qapp.setQuitOnLastWindowClosed(False)
         self.qapp.setWindowIcon(QIcon(ICON_PATH))
         platform_tweaks.after_app()
+        i18n.set_lang(i18n.detect(QLocale.system().uiLanguages()))
 
         self.cfg = core.load_config()
         self.visible = False
@@ -234,10 +242,10 @@ class App:
         if not platform_tweaks.IS_MAC:
             # no macOS um menu no icone substitui o clique; la o "Fechar" fica nas configuracoes
             menu = QMenu()
-            menu.addAction("Abrir", self.toggle_panel)
-            self.power_action = menu.addAction("Ligar", lambda: self.lamp.power(not self.lamp.state["on"]))
+            menu.addAction(_("Open"), self.toggle_panel)
+            self.power_action = menu.addAction(_("Turn on"), lambda: self.lamp.power(not self.lamp.state["on"]))
             menu.addSeparator()
-            menu.addAction("Fechar o Lume", self.quit)
+            menu.addAction(_("Quit Lume"), self.quit)
             self.menu = menu
             self.tray.setContextMenu(menu)
         self.tray.show()
@@ -261,10 +269,10 @@ class App:
         if rgb != self.tray_rgb:  # recriar o icone a cada arrasto do slider e caro
             self.tray_rgb = rgb
             self.tray.setIcon(pil_to_icon(tray_icon(rgb)))
-        status = state["status"] or ("acesa" if state["on"] else "apagada")
-        self.tray.setToolTip(f"Lume – {self.cfg['name']} {status}"[:127])
+        status = state["status"] or (_("on") if state["on"] else _("off"))
+        self.tray.setToolTip(f"Lume – {self.cfg['name'] or _('Lamp')} {status}"[:127])
         if hasattr(self, "power_action"):
-            self.power_action.setText("Desligar" if state["on"] else "Ligar")
+            self.power_action.setText(_("Turn off") if state["on"] else _("Turn on"))
 
     # ----- painel -----
     def _on_tray(self, reason):

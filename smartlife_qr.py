@@ -5,6 +5,8 @@ import io
 import qrcode
 from tuya_sharing import LoginControl, Manager
 
+from i18n import _
+
 # credenciais publicas da integracao Tuya do Home Assistant
 CLIENT_ID = "HA_3y9q4ak7g4ephrvke"
 SCHEMA = "haauthorize"
@@ -17,7 +19,7 @@ def start(user_code):
     """Retorna {"token", "qr"} (qr = PNG em data URI) ou {"error"}."""
     resp = _login.qr_code(CLIENT_ID, SCHEMA, user_code)
     if not resp.get("success"):
-        return {"error": resp.get("msg", "Codigo de usuario invalido")}
+        return {"error": resp.get("msg") or _("Invalid user code")}
     token = resp["result"]["qrcode"]
     buf = io.BytesIO()
     qrcode.make(f"tuyaSmart--qrLogin?token={token}", border=1).save(buf, format="PNG")

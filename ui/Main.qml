@@ -44,27 +44,31 @@ Window {
         return Qt.rgba((255 + (205 - 255) * k) / 255, (170 + (222 - 170) * k) / 255, (80 + (255 - 80) * k) / 255, 1)
     }
     function kelvin(t) { return Math.round((2700 + t * 38) / 100) * 100 }
+    // textos em ingles; backend.strings traz a traducao do idioma do sistema (ver i18n.py)
+    function tr(s) { return backend.strings[s] || s }
     function hueName(h, s) {
-        if (s < 20) return "branco"
-        const names = [[15, "vermelho"], [45, "laranja"], [70, "amarelo"], [165, "verde"], [200, "ciano"],
-                       [255, "azul"], [290, "roxo"], [340, "rosa"], [361, "vermelho"]]
+        if (s < 20) return "white"
+        const names = [[15, "red"], [45, "orange"], [70, "yellow"], [165, "green"], [200, "cyan"],
+                       [255, "blue"], [290, "purple"], [340, "pink"], [361, "red"]]
         return names.find(n => h < n[0])[1]
     }
     function subtitle() {
-        if (!connected) return st.status || "Desconectada"
-        if (!st.on) return "Apagada"
-        if (colourMode) return "Acesa em " + hueName(hue, sat)
-        return "Acesa em branco " + (temp < 34 ? "quente" : temp > 66 ? "frio" : "neutro")
+        if (!connected) return st.status || tr("Disconnected")
+        if (!st.on) return tr("Off")
+        const name = colourMode ? hueName(hue, sat) : temp < 34 ? "warm white" : temp > 66 ? "cool white" : "neutral white"
+        // ingles: so a cor ("Warm white"); outros idiomas tem frase propria ("Acesa em branco quente")
+        const phrase = tr("On: %1")
+        return phrase === "On: %1" ? name[0].toUpperCase() + name.slice(1) : phrase.arg(tr(name))
     }
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, Math.round(v))) }
 
     // comandos: o Python devolve false quando a lampada nao esta conectada
     function needConnection() {
         if (connected) return false
-        toast.show(cfg.key ? "A lâmpada não está conectada" : "Configure a lâmpada primeiro")
+        toast.show(cfg.key ? tr("The lamp is not connected") : tr("Set up the lamp first"))
         return true
     }
-    function send(ok) { if (ok === false) toast.show("A lâmpada não está conectada") }
+    function send(ok) { if (ok === false) toast.show(tr("The lamp is not connected")) }
     function setBright(v) { if (!needConnection()) send(backend.brightness(clamp(v, 1, 100))) }
     function setTemp(v) { if (!needConnection()) send(backend.temperature(clamp(v, 0, 100))) }
     function setColour(h, s) { if (!needConnection()) send(backend.colour(clamp(h, 0, 359), clamp(s, 0, 100))) }
@@ -277,7 +281,7 @@ Window {
                             anchors.verticalCenter: parent.verticalCenter
                             x: 4
                             spacing: 3
-                            Txt { text: cfg.name || "Lâmpada"; font.family: displayFont; font.pixelSize: 20; font.weight: Font.DemiBold; font.letterSpacing: -0.4 }
+                            Txt { text: cfg.name || tr("Lamp"); font.family: displayFont; font.pixelSize: 20; font.weight: Font.DemiBold; font.letterSpacing: -0.4 }
                             Txt { text: subtitle(); color: ink2; font.pixelSize: 12 }
                         }
                         RoundBtn {
@@ -368,8 +372,8 @@ Window {
                                 Column {
                                     x: 16; anchors.bottom: parent.bottom; anchors.bottomMargin: 14
                                     spacing: 2
-                                    Txt { text: lampOn ? "Acesa" : "Apagada"; font.family: displayFont; font.pixelSize: 17; font.weight: Font.DemiBold }
-                                    Txt { text: lampOn ? "Clique para apagar" : "Clique para acender"; color: ink2; font.pixelSize: 12 }
+                                    Txt { text: lampOn ? tr("On") : tr("Off"); font.family: displayFont; font.pixelSize: 17; font.weight: Font.DemiBold }
+                                    Txt { text: lampOn ? tr("Click to turn off") : tr("Click to turn on"); color: ink2; font.pixelSize: 12 }
                                 }
                                 MouseArea {
                                     id: powerArea
@@ -388,10 +392,10 @@ Window {
                                     spacing: 10
                                     Item {
                                         width: parent.width; height: 16
-                                        Txt { text: "Branco"; font.weight: Font.DemiBold }
+                                        Txt { text: tr("White"); font.weight: Font.DemiBold }
                                         Txt {
                                             anchors.right: parent.right
-                                            text: colourMode ? "modo cor" : kelvin(temp) + " K"
+                                            text: colourMode ? tr("colour mode") : kelvin(temp) + " K"
                                             color: ink2; font.family: roundedFont; font.pixelSize: 12; font.weight: Font.Medium
                                         }
                                     }
@@ -437,13 +441,13 @@ Window {
                                     Row {
                                         width: parent.width; spacing: 6
                                         Repeater {
-                                            model: [["Quente", 0], ["Neutro", 50], ["Frio", 100]]
+                                            model: [["Warm", 0], ["Neutral", 50], ["Cool", 100]]
                                             Rectangle {
                                                 required property var modelData
                                                 width: (parent.width - 12) / 3; height: 26; radius: 13
                                                 color: chipArea.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.08)
                                                 border.color: Qt.rgba(1, 1, 1, 0.1)
-                                                Txt { anchors.centerIn: parent; text: modelData[0]; font.pixelSize: 12; color: ink }
+                                                Txt { anchors.centerIn: parent; text: tr(modelData[0]); font.pixelSize: 12; color: ink }
                                                 MouseArea {
                                                     id: chipArea
                                                     anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
@@ -464,8 +468,8 @@ Window {
                             anchors.centerIn: parent
                             spacing: (parent.width - 28 - 8 * 30) / 7
                             Repeater {
-                                model: [["Vermelho", 0, 100], ["Laranja", 28, 100], ["Amarelo", 50, 100], ["Verde", 125, 100],
-                                        ["Azul", 225, 100], ["Roxo", 275, 100], ["Rosa", 320, 85]]
+                                model: [["Red", 0, 100], ["Orange", 28, 100], ["Yellow", 50, 100], ["Green", 125, 100],
+                                        ["Blue", 225, 100], ["Purple", 275, 100], ["Pink", 320, 85]]
                                 Item {
                                     required property var modelData
                                     readonly property bool active: colourMode && Math.min(Math.abs(modelData[1] - hue), 360 - Math.abs(modelData[1] - hue)) < 8
@@ -495,7 +499,7 @@ Window {
                                         onClicked: setColour(modelData[1], modelData[2])
                                     }
                                     ToolTip.visible: swArea.containsMouse
-                                    ToolTip.text: modelData[0]
+                                    ToolTip.text: tr(modelData[0])
                                     ToolTip.delay: 600
                                 }
                             }
@@ -531,8 +535,8 @@ Window {
                 Behavior on opacity { NumberAnimation { duration: 200 } }
                 Item {
                     x: 16; y: 14; width: parent.width - 32; height: 30
-                    Txt { anchors.verticalCenter: parent.verticalCenter; text: "Cor"; font.family: displayFont; font.pixelSize: 17; font.weight: Font.DemiBold }
-                    Btn { anchors.right: parent.right; primary: true; text: "Pronto"; implicitHeight: 30; onClicked: sheetOpen = false }
+                    Txt { anchors.verticalCenter: parent.verticalCenter; text: tr("Colour"); font.family: displayFont; font.pixelSize: 17; font.weight: Font.DemiBold }
+                    Btn { anchors.right: parent.right; primary: true; text: tr("Done"); implicitHeight: 30; onClicked: sheetOpen = false }
                 }
                 Image {
                     id: wheel
@@ -594,14 +598,14 @@ Window {
                 Connections {
                     target: backend
                     function onScanFinished(found) {
-                        scanBtn.text = "Procurar na rede"; scanBtn.enabledBtn = true
-                        if (!found.length) return toast.show("Nenhuma lâmpada respondeu. Ela está ligada e no mesmo Wi-Fi?", 5000)
+                        scanBtn.text = tr("Find on network"); scanBtn.enabledBtn = true
+                        if (!found.length) return toast.show(tr("No lamp answered. Is it on and on the same Wi-Fi?"), 5000)
                         const d = found.find(f => f.id === settings.field(1).text) || found[0]
                         settings.field(3).text = d.ip
                         if (!settings.field(1).text) settings.field(1).text = d.id
                         if (d.version) settings.version = d.version
                         settings.dirty = true
-                        toast.show(found.length > 1 ? found.length + " aparelhos encontrados, usei " + d.ip : "Encontrada em " + d.ip)
+                        toast.show(found.length > 1 ? tr("%1 devices found, using %2").arg(found.length).arg(d.ip) : tr("Found at %1").arg(d.ip))
                     }
                     function onSmartlifeQr(r) {
                         qrGo.enabledBtn = true
@@ -609,7 +613,7 @@ Window {
                         settings.qrToken = r.token
                         settings.qrDeadline = Date.now() + 4 * 60 * 1000
                         qrImg.source = r.qr
-                        toast.show("Escaneie com o Smart Life e confirme no celular", 0)
+                        toast.show(tr("Scan it with Smart Life and confirm on your phone"), 0)
                         pollTimer.start()
                     }
                     function onSmartlifeResult(r) {
@@ -618,12 +622,12 @@ Window {
                         settings.stopQr()
                         slBox.open = false
                         if (r.error) return toast.show(r.error, 6000)
-                        if (!r.devices.length) return toast.show("Nenhum aparelho nessa conta")
+                        if (!r.devices.length) return toast.show(tr("No devices on this account"))
                         const d = r.devices[0]
                         settings.field(1).text = d.id; settings.field(2).text = d.key; settings.field(3).text = "Auto"
-                        if (!settings.field(0).text || settings.field(0).text === "Lâmpada") settings.field(0).text = d.name
+                        if (!settings.field(0).text || settings.field(0).text === tr("Lamp")) settings.field(0).text = d.name
                         settings.dirty = true
-                        toast.show("Chave de \"" + d.name + "\" preenchida. Clique em Salvar e conectar.", 5000)
+                        toast.show(tr("Key for \"%1\" filled in. Click Save and connect.").arg(d.name), 5000)
                     }
                 }
                 function stopQr() { pollTimer.stop(); qrToken = ""; qrImg.source = ""; toast.hide() }
@@ -634,7 +638,7 @@ Window {
                         if (!slBox.open || view !== "settings" || !win.visible) return settings.stopQr()
                         if (Date.now() > settings.qrDeadline) {
                             settings.stopQr()
-                            return toast.show("O QR code expirou. Clique em Gerar QR de novo.", 5000)
+                            return toast.show(tr("The QR code expired. Click Create QR again."), 5000)
                         }
                         backend.smartlifePoll(settings.qrToken, settings.qrCode)
                     }
@@ -650,8 +654,8 @@ Window {
                         width: parent.width; height: 40
                         Column {
                             anchors.verticalCenter: parent.verticalCenter; x: 4; spacing: 3
-                            Txt { text: "Configurações"; font.family: displayFont; font.pixelSize: 20; font.weight: Font.DemiBold; font.letterSpacing: -0.4 }
-                            Txt { text: "Conexão com a lâmpada na sua rede"; color: ink2; font.pixelSize: 12 }
+                            Txt { text: tr("Settings"); font.family: displayFont; font.pixelSize: 20; font.weight: Font.DemiBold; font.letterSpacing: -0.4 }
+                            Txt { text: tr("Connection to the lamp on your network"); color: ink2; font.pixelSize: 12 }
                         }
                         RoundBtn {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
@@ -667,20 +671,20 @@ Window {
                             y: 4; width: parent.width
                             Repeater {
                                 id: fieldRep
-                                model: [["Nome", "Lâmpada", false], ["ID", "ID do aparelho", false],
-                                        ["Chave local", "Pegue com o Smart Life", true], ["IP", "Auto", false]]
+                                model: [["Name", "Lamp", false], ["ID", "Device ID", false],
+                                        ["Local key", "Get it with Smart Life", true], ["IP", "Auto", false]]
                                 Item {
                                     required property var modelData
                                     required property int index
                                     property alias input: tf
                                     width: fields.width; height: 38
                                     Rectangle { visible: index > 0; width: parent.width - 28; x: 14; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
-                                    Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; width: 78; text: modelData[0]; color: ink2; font.pixelSize: 12 }
+                                    Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; width: 78; text: tr(modelData[0]); color: ink2; font.pixelSize: 12 }
                                     TextField {
                                         id: tf
                                         x: 96; width: parent.width - 96 - 10
                                         anchors.verticalCenter: parent.verticalCenter
-                                        placeholderText: modelData[1]
+                                        placeholderText: tr(modelData[1])
                                         placeholderTextColor: ink3
                                         echoMode: modelData[2] ? TextInput.Password : TextInput.Normal
                                         color: ink; font.family: textFont; font.pixelSize: 13
@@ -694,7 +698,7 @@ Window {
                             Item {
                                 width: fields.width; height: 40
                                 Rectangle { width: parent.width - 28; x: 14; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
-                                Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; text: "Versão"; color: ink2; font.pixelSize: 12 }
+                                Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; text: tr("Version"); color: ink2; font.pixelSize: 12 }
                                 Rectangle {
                                     x: 96; width: parent.width - 96 - 14; height: 28
                                     anchors.verticalCenter: parent.verticalCenter
@@ -722,12 +726,12 @@ Window {
                         Btn {
                             id: scanBtn
                             width: (parent.width - 8) / 2
-                            text: "Procurar na rede"
-                            onClicked: { text = "Procurando…"; enabledBtn = false; backend.scan() }
+                            text: tr("Find on network")
+                            onClicked: { text = tr("Searching…"); enabledBtn = false; backend.scan() }
                         }
                         Btn {
                             width: (parent.width - 8) / 2
-                            text: "Login Smart Life"
+                            text: tr("Smart Life login")
                             onClicked: { slBox.open = !slBox.open; if (slBox.open) qrCodeField.forceActiveFocus() }
                         }
                     }
@@ -743,21 +747,21 @@ Window {
                             y: 12; x: 12; width: parent.width - 24; spacing: 8
                             Txt {
                                 width: parent.width; wrapMode: Text.WordWrap; color: ink2; font.pixelSize: 12
-                                text: "No Smart Life: Eu › engrenagem › Conta e segurança › Código de usuário"
+                                text: tr("In Smart Life: Me › gear › Account and Security › User Code")
                             }
                             Row {
                                 width: parent.width; spacing: 8
                                 TextField {
                                     id: qrCodeField
                                     width: parent.width - qrGo.width - 8; height: 30
-                                    placeholderText: "Código de usuário"; placeholderTextColor: ink3
+                                    placeholderText: tr("User code"); placeholderTextColor: ink3
                                     color: ink; font.family: textFont; font.pixelSize: 13; selectByMouse: true
                                     background: Rectangle { radius: 8; color: Qt.rgba(0, 0, 0, 0.25) }
                                     onAccepted: qrGo.clicked()
                                 }
                                 Btn {
                                     id: qrGo
-                                    primary: true; text: "Gerar QR"; implicitHeight: 30
+                                    primary: true; text: tr("Create QR"); implicitHeight: 30
                                     onClicked: {
                                         if (!qrCodeField.text.trim()) return qrCodeField.forceActiveFocus()
                                         enabledBtn = false
@@ -779,7 +783,7 @@ Window {
                     Glass {
                         visible: backend.isWindows
                         width: parent.width; height: 46; radius: 18
-                        Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; text: "Vidro" }
+                        Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; text: tr("Glass") }
                         Rectangle {
                             x: 96; width: parent.width - 96 - 12; height: 28
                             anchors.verticalCenter: parent.verticalCenter
@@ -787,13 +791,13 @@ Window {
                             Row {
                                 anchors.fill: parent; anchors.margins: 2
                                 Repeater {
-                                    model: [["acrylic", "Acrílico"], ["blur", "Leve"]]
+                                    model: [["acrylic", "Acrylic"], ["blur", "Light"]]
                                     Rectangle {
                                         required property var modelData
                                         readonly property bool chosen: (cfg.glass || "acrylic") === modelData[0]
                                         width: parent.width / 2; height: parent.height; radius: 7
                                         color: chosen ? Qt.rgba(1, 1, 1, 0.2) : "transparent"
-                                        Txt { anchors.centerIn: parent; text: modelData[1]; font.pixelSize: 12; color: parent.chosen ? ink : ink2 }
+                                        Txt { anchors.centerIn: parent; text: tr(modelData[1]); font.pixelSize: 12; color: parent.chosen ? ink : ink2 }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                             onClicked: { backend.setGlass(modelData[0]); cfg = backend.getConfig() }
@@ -806,7 +810,7 @@ Window {
 
                     Glass {
                         width: parent.width; height: 46; radius: 18
-                        Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; text: "Iniciar com o sistema" }
+                        Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; text: tr("Start with the system") }
                         Rectangle {
                             id: autostart
                             property bool on: false
@@ -824,17 +828,17 @@ Window {
                                 onClicked: {
                                     const want = !autostart.on
                                     autostart.on = backend.setAutostart(want)
-                                    if (autostart.on !== want) toast.show("Não consegui mudar a inicialização automática")
+                                    if (autostart.on !== want) toast.show(tr("Couldn't change start with the system"))
                                 }
                             }
                         }
                     }
 
                     Btn {
-                        width: parent.width; primary: true; text: "Salvar e conectar"
+                        width: parent.width; primary: true; text: tr("Save and connect")
                         onClicked: {
                             const f = i => fieldRep.itemAt(i).input.text.trim()
-                            backend.saveConfig({ name: f(0) || "Lâmpada", id: f(1), key: f(2), ip: f(3) || "Auto", version: settings.version })
+                            backend.saveConfig({ name: f(0), id: f(1), key: f(2), ip: f(3) || "Auto", version: settings.version })
                             cfg = backend.getConfig()
                             settings.dirty = false
                             showView("main")
@@ -842,7 +846,7 @@ Window {
                     }
                     Txt {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: "Fechar o Lume"; color: "#ff6961"; font.pixelSize: 12
+                        text: tr("Quit Lume"); color: "#ff6961"; font.pixelSize: 12
                         MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor; onClicked: backend.quit() }
                     }
                 }

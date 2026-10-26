@@ -1,4 +1,4 @@
-; Instalador do Lume para Windows (Inno Setup 6).
+﻿; Instalador do Lume para Windows (Inno Setup 6).
 ;   iscc /DAppVersion=1.0.0 packaging\lume.iss
 ; Espera o build do PyInstaller em dist\Lume.
 
@@ -30,12 +30,27 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=force
 
+; o Inno escolhe pelo idioma do Windows; sem correspondencia, o primeiro (ingles)
 [Languages]
-Name: "ptbr"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "ptbr"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
+Name: "de"; MessagesFile: "compiler:Languages\German.isl"
+Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
+Name: "ja"; MessagesFile: "compiler:Languages\Japanese.isl"
+
+[CustomMessages]
+en.AutoStart=Start Lume with Windows
+ptbr.AutoStart=Iniciar o Lume junto com o Windows
+es.AutoStart=Iniciar Lume con Windows
+fr.AutoStart=Lancer Lume au démarrage de Windows
+de.AutoStart=Lume mit Windows starten
+it.AutoStart=Avvia Lume con Windows
+ja.AutoStart=Windows の起動時に Lume を起動する
 
 [Tasks]
-Name: "autostart"; Description: "Iniciar o Lume junto com o Windows"
+Name: "autostart"; Description: "{cm:AutoStart}"
 
 [Files]
 Source: "..\dist\Lume\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -48,7 +63,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
   ValueData: """{app}\Lume.exe"""; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\Lume.exe"; Description: "Abrir o Lume"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Lume.exe"; Description: "{cm:LaunchProgram,Lume}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im Lume.exe"; Flags: runhidden; RunOnceId: "FecharLume"

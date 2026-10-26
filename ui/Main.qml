@@ -311,7 +311,14 @@ Window {
                                     color: lampOn ? "#ffffff" : Qt.rgba(1, 1, 1, 0.28)
                                 }
                             }
-                            Icon { name: "sun"; width: 22; height: 22; tint: ink2; anchors.horizontalCenter: parent.horizontalCenter; y: 18 }
+                            Icon {
+                                id: sun
+                                name: "sun"; width: 22; height: 22
+                                anchors.horizontalCenter: parent.horizontalCenter; y: 18
+                                // escuro quando a parte branca da barra (brilho alto) passa por tras dele
+                                readonly property bool overFill: lampOn && brightPill.height * (1 - bright / 100) < y + height / 2
+                                tint: overFill ? dark : ink2
+                            }
                             Txt {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.bottom: parent.bottom; anchors.bottomMargin: 16

@@ -1,8 +1,13 @@
-<img src="assets/lume.png" width="96" align="right">
+<p align="center">
+  <img src="assets/lume.png" width="128" alt="">
+</p>
 
-# Lume
+<h1 align="center">Lume</h1>
 
-Painel rápido na bandeja do Windows 11 para controlar uma lâmpada RGB Tuya (Positivo Casa Inteligente, Smart Life, etc.) direto pela rede local, sem nuvem.
+<p align="center">
+  Painel rápido na bandeja do Windows 11 para controlar uma lâmpada RGB Tuya<br>
+  (Positivo Casa Inteligente, Smart Life etc.) direto pela rede local, sem nuvem.
+</p>
 
 - Clique no ícone da bandeja: abre o painel (brilho, temperatura do branco, cores, roda de cores)
 - Botão direito: ligar/desligar e sair

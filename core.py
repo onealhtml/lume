@@ -132,6 +132,7 @@ class Lamp:
                       "temp": 50, "h": 30, "s": 100, "status": "Desconectado"}
         self._pending = {}
         self._last_send = 0.0
+        self._known = {}  # ultimo valor de cada DP que a lampada confirmou (para so mandar o que mudou)
         self._gen = 0              # cada connect() invalida as tentativas anteriores
         self._cv = threading.Condition()  # protege state + _pending
         self._io = threading.Lock()       # uma conversa com a lampada por vez
@@ -179,6 +180,7 @@ class Lamp:
             if gen != self._gen:
                 return None
             self.dev = dev
+            self._known = {}
             self._parse(st["dps"])
         if cfg["ip"] in ("", "Auto") and cfg.get("last_ip") != dev.address:
             cfg["last_ip"] = dev.address
@@ -225,6 +227,7 @@ class Lamp:
         self._update()
 
     def _parse(self, dps):
+        self._known.update(dps)
         s = self.state
         s["on"] = bool(dps.get("20", s["on"]))
         s["mode"] = dps.get("21", s["mode"])
@@ -265,7 +268,10 @@ class Lamp:
                 dps, self._pending = self._pending, {}
                 dev = self.dev
                 self._last_send = time.time()
-            if not dev:
+                # so o que mudou: repetir "ligar" ou "modo cor" faz a lampada refazer a
+                # transicao (fade) e a troca de cor parece atrasada
+                dps = {k: v for k, v in dps.items() if self._known.get(k) != v}
+            if not dev or not dps:
                 continue
             with self._io:
                 try:
@@ -274,7 +280,9 @@ class Lamp:
                     r = {"Error": str(e)}
             if isinstance(r, dict) and "Error" in r:
                 self._lost(dev, r["Error"])
-            time.sleep(0.05)
+            else:
+                with self._cv:
+                    self._known.update(dps)
 
     @staticmethod
     def _colour_hex(s):

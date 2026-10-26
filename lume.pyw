@@ -200,6 +200,8 @@ class App:
         QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
         self.qapp = QApplication(sys.argv)
         self.qapp.setApplicationName("Lume")
+        self.qapp.setDesktopFileName(core.DESKTOP_ID)  # Linux: a janela e do app Lume, nao de quem o abriu
+        core.install_desktop_entry()
         self.qapp.setQuitOnLastWindowClosed(False)
         self.qapp.setWindowIcon(QIcon(ICON_PATH))
         platform_tweaks.after_app()

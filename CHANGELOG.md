@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3]
+
+- Linux: Lume adds itself to the app menu, with its icon, the first time it runs. GNOME now knows the
+  panel belongs to Lume; before, it counted it as a window of whatever app opened Lume (Files, a
+  terminal), and closing that app could crash GNOME Shell and log you out.
+- macOS: sharper app icon (1024 px).
+
 ## [1.1.2]
 
 - The Linux AppImage and tar.gz open again on newer distros (Fedora 44 and others): they no longer

@@ -103,11 +103,50 @@ def set_autostart(enable):
         with open(path, "wb") as f:
             plistlib.dump({"Label": "ai.lume.tray", "ProgramArguments": cmd, "RunAtLoad": True}, f)
     else:
-        icon = os.path.join(APP_DIR, "assets", "lume.png")
-        exec_line = " ".join(f'"{c}"' for c in cmd)
         with open(path, "w", encoding="utf-8") as f:
-            f.write("[Desktop Entry]\nType=Application\nName=Lume\n"
-                    f"Exec={exec_line}\nIcon={icon}\nX-GNOME-Autostart-enabled=true\n")
+            f.write(_desktop_entry("X-GNOME-Autostart-enabled=true\n"))
+
+
+# ----- atalho no menu (Linux) -----
+DESKTOP_ID = "lume"  # no Wayland o app_id da janela; o GNOME acha o app pelo .desktop com esse nome
+_DATA_HOME = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+_MENU_DESKTOP = os.path.join(_DATA_HOME, "applications", DESKTOP_ID + ".desktop")
+_MENU_ICON = os.path.join(_DATA_HOME, "icons", "hicolor", "256x256", "apps", DESKTOP_ID + ".png")
+
+
+def _desktop_entry(extra=""):
+    # no executavel o icone e copiado para fora (o assets/ do AppImage muda de lugar a cada execucao);
+    # caminho completo e nao o nome: o GNOME so ve uma pasta de icones nova depois de reiniciar a sessao
+    icon = _MENU_ICON if FROZEN else os.path.join(APP_DIR, "assets", "lume.png")
+    exec_line = " ".join(f'"{c}"' for c in _launch_cmd())
+    return ("[Desktop Entry]\nType=Application\nName=Lume\nComment=Control a Tuya lamp over the local network\n"
+            f"Exec={exec_line}\nIcon={icon}\nCategories=Utility;\n{extra}")
+
+
+def install_desktop_entry():
+    """Linux, so no executavel: .desktop e icone do usuario. Sem eles o GNOME atribui a janela a quem
+    abriu o Lume (o Arquivos, um terminal...), e quando esse app fecha a doca se perde e o shell cai."""
+    if not FROZEN or sys.platform in ("win32", "darwin"):
+        return
+    try:
+        src = os.path.join(APP_DIR, "assets", "lume.png")
+        if not os.path.exists(_MENU_ICON) or os.path.getsize(_MENU_ICON) != os.path.getsize(src):
+            os.makedirs(os.path.dirname(_MENU_ICON), exist_ok=True)
+            shutil.copyfile(src, _MENU_ICON)
+        entry = _desktop_entry()
+        try:
+            with open(_MENU_DESKTOP, encoding="utf-8") as f:
+                current = f.read()
+        except OSError:
+            current = ""
+        if current != entry:  # primeira vez, ou o .AppImage mudou de pasta
+            os.makedirs(os.path.dirname(_MENU_DESKTOP), exist_ok=True)
+            with open(_MENU_DESKTOP, "w", encoding="utf-8") as f:
+                f.write(entry)
+            if autostart_enabled():  # o inicio automatico apontava para o caminho antigo
+                set_autostart(True)
+    except OSError:
+        pass
 
 
 # ----- cores -----

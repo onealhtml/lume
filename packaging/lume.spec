@@ -49,7 +49,7 @@ exe = EXE(
     exclude_binaries=True,
     name="Lume",
     console=False,
-    icon=os.path.join(ROOT, "assets", "lume.png" if IS_MAC else "lume.ico"),
+    icon=os.path.join(ROOT, "assets", "lume.icns" if IS_MAC else "lume.ico"),
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="Lume")
 
@@ -57,7 +57,7 @@ if IS_MAC:
     app = BUNDLE(
         coll,
         name="Lume.app",
-        icon=os.path.join(ROOT, "assets", "lume.png"),
+        icon=os.path.join(ROOT, "assets", "lume.icns"),
         bundle_identifier="ai.lume.tray",
         info_plist={
             "CFBundleName": "Lume",

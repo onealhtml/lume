@@ -98,6 +98,7 @@ if __name__ == "__main__":
     icon = app_icon(256)
     icon.save(os.path.join(out, "lume.ico"), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     icon.save(os.path.join(out, "lume.png"))
+    app_icon(1024).save(os.path.join(out, "lume.icns"))  # macOS: ate 1024 px, nitido no Retina
     color_wheel().save(os.path.join(out, "wheel.png"))
     if "--preview" not in sys.argv:
         raise SystemExit

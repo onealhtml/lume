@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.1]
+
+- The brightness percentage turns dark as soon as the bright part of the bar reaches it (it stayed
+  white, and unreadable, below 18%).
+
 ## [1.1.0]
 
 - Follows the system language: English, Portuguese, Spanish, French, German, Italian, Japanese and

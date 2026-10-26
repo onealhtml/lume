@@ -329,7 +329,9 @@ Window {
                                 text: bright + "<font size='2'>%</font>"
                                 textFormat: Text.RichText
                                 font.family: roundedFont; font.pixelSize: 22; font.weight: Font.DemiBold
-                                color: !lampOn ? ink2 : bright < 18 ? ink : dark
+                                // como o sol: escuro quando a parte branca passa do meio do numero
+                                readonly property bool overFill: (brightPill.height - 2) * bright / 100 > anchors.bottomMargin + height / 2
+                                color: !lampOn ? ink2 : overFill ? dark : ink
                             }
                             MouseArea {
                                 id: brightArea

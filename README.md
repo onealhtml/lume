@@ -67,8 +67,18 @@ Me › gear › Account and Security › User Code, paste the code, scan the QR 
 ### Notes per system
 
 - **Windows 11:** the panel uses the system's acrylic glass, or a lighter blur (Settings › Glass).
-- **Linux:** GNOME only shows tray icons with the *AppIndicator* extension. Without a tray, Lume opens
-  as a regular window. On Wayland the system decides where windows appear.
+- **Linux:** GNOME only shows tray icons with the *AppIndicator* extension (Ubuntu already ships it;
+  KDE and most other desktops have a tray of their own). Without a tray, Lume opens as a regular
+  window. On Wayland the system decides where windows appear. To get the icon in GNOME's top bar:
+
+  ```
+  sudo dnf install gnome-shell-extension-appindicator      # Fedora
+  sudo apt install gnome-shell-extension-appindicator      # Debian
+  sudo pacman -S gnome-shell-extension-appindicator        # Arch
+  ```
+
+  Log out and back in, then `gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com` and
+  open Lume again.
 - **macOS:** the icon lives in the menu bar; "Quit Lume" is in Settings.
 
 ## Run from source

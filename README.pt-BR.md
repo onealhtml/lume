@@ -67,8 +67,18 @@ Eu › engrenagem › Conta e segurança › Código de usuário, cole o código
 ### Observações por sistema
 
 - **Windows 11:** o painel usa o vidro acrílico do sistema, ou um desfoque mais leve (Configurações › Vidro).
-- **Linux:** o GNOME só mostra ícones de bandeja com a extensão *AppIndicator*. Sem bandeja, o Lume abre
-  como janela comum. No Wayland o sistema decide onde a janela aparece.
+- **Linux:** o GNOME só mostra ícones de bandeja com a extensão *AppIndicator* (o Ubuntu já vem com ela;
+  o KDE e a maioria dos outros ambientes têm bandeja própria). Sem bandeja, o Lume abre como janela
+  comum. No Wayland o sistema decide onde a janela aparece. Para ter o ícone na barra de cima do GNOME:
+
+  ```
+  sudo dnf install gnome-shell-extension-appindicator      # Fedora
+  sudo apt install gnome-shell-extension-appindicator      # Debian
+  sudo pacman -S gnome-shell-extension-appindicator        # Arch
+  ```
+
+  Saia e entre de novo na sessão, rode `gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com`
+  e abra o Lume outra vez.
 - **macOS:** o ícone fica na barra de menus; "Fechar o Lume" fica nas configurações.
 
 ## Rodar pelo código

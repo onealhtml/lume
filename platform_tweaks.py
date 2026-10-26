@@ -35,23 +35,38 @@ def _mac_hide_dock_icon():
         pass
 
 
-def style_window(win_id):
+class _AccentPolicy(ctypes.Structure):
+    _fields_ = [("state", ctypes.c_int), ("flags", ctypes.c_int), ("color", ctypes.c_uint), ("anim", ctypes.c_int)]
+
+
+class _CompositionData(ctypes.Structure):
+    _fields_ = [("attrib", ctypes.c_int), ("data", ctypes.c_void_p), ("size", ctypes.c_size_t)]
+
+
+def _dwm_attr(win_id, attr, value):
+    v = ctypes.c_int(value)
+    return ctypes.windll.dwmapi.DwmSetWindowAttribute(win_id, attr, ctypes.byref(v), ctypes.sizeof(v)) == 0
+
+
+def style_window(win_id, mode="blur"):
     """Vidro do sistema atras da janela. Retorna True se o sistema desenha fundo e cantos
-    (a interface entao nao arredonda nem pinta o fundo opaco)."""
+    (a interface entao nao arredonda nem pinta o fundo opaco).
+    mode: "blur" = desfoque leve, fundo bem visivel (padrao);
+          "acrylic" = acrilico do Windows 11, desfoque forte e cinza."""
     if not IS_WIN or sys.getwindowsversion().build < 22000:
         return False
     try:
-        dwm = ctypes.windll.dwmapi
-        margins = (ctypes.c_int * 4)(-1, -1, -1, -1)
-        dwm.DwmExtendFrameIntoClientArea(win_id, margins)
-        for attr, value in ((20, 1),   # DWMWA_USE_IMMERSIVE_DARK_MODE
-                            (33, 2),   # DWMWA_WINDOW_CORNER_PREFERENCE = arredondado
-                            (38, 3)):  # DWMWA_SYSTEMBACKDROP_TYPE = acrilico
-            v = ctypes.c_int(value)
-            if dwm.DwmSetWindowAttribute(win_id, attr, ctypes.byref(v), ctypes.sizeof(v)) != 0 and attr == 38:
-                return False
-        return True
-    except OSError:
+        _dwm_attr(win_id, 20, 1)  # DWMWA_USE_IMMERSIVE_DARK_MODE
+        _dwm_attr(win_id, 33, 2)  # DWMWA_WINDOW_CORNER_PREFERENCE = arredondado
+        if mode == "acrylic":
+            margins = (ctypes.c_int * 4)(-1, -1, -1, -1)
+            ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(win_id, margins)
+            return _dwm_attr(win_id, 38, 3)  # DWMWA_SYSTEMBACKDROP_TYPE = acrilico
+        # desfoque classico (ACCENT_ENABLE_BLURBEHIND): sem a camada cinza do acrilico
+        accent = _AccentPolicy(3, 0, 0, 0)
+        data = _CompositionData(19, ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p), ctypes.sizeof(accent))
+        return bool(ctypes.windll.user32.SetWindowCompositionAttribute(win_id, ctypes.byref(data)))
+    except (OSError, AttributeError):
         return False
 
 

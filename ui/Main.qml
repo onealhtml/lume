@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Window
 import QtQuick.Controls.Basic
 import QtQuick.Effects
+import QtQuick.Shapes
 
 Window {
     id: win
@@ -209,8 +210,8 @@ Window {
             anchors.fill: parent
             radius: panel.radius
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(38 / 255, 40 / 255, 48 / 255, backend.systemGlass ? 0.22 : backend.windowed ? 1 : 0.96) }
-                GradientStop { position: 1.0; color: Qt.rgba(20 / 255, 21 / 255, 26 / 255, backend.systemGlass ? 0.40 : backend.windowed ? 1 : 0.98) }
+                GradientStop { position: 0.0; color: Qt.rgba(38 / 255, 40 / 255, 48 / 255, backend.systemGlass ? 0.26 : backend.windowed ? 1 : 0.96) }
+                GradientStop { position: 1.0; color: Qt.rgba(20 / 255, 21 / 255, 26 / 255, backend.systemGlass ? 0.44 : backend.windowed ? 1 : 0.98) }
             }
         }
 
@@ -218,17 +219,30 @@ Window {
         RoundClip {
           anchors.fill: parent
           radius: panel.radius
-          Item {
+          // gradiente radial saindo do canto, como a luz de uma lampada (nada de mancha desfocada)
+          Shape {
+            id: glow
             anchors.fill: parent
-            layer.enabled: true
-            layer.effect: MultiEffect { blurEnabled: true; blur: 1.0; blurMax: 64; autoPaddingEnabled: false }
-            Rectangle {
-                width: 240; height: 240; radius: 120
-                x: parent.width - 170; y: -40
-                color: lampColor
-                opacity: lampOn ? 0.25 + bright / 100 * 0.5 : 0.12
-                Behavior on color { ColorAnimation { duration: 500 } }
-                Behavior on opacity { NumberAnimation { duration: 500 } }
+            property color c: lampColor
+            property real k: lampOn ? 0.35 + bright / 100 * 0.45 : 0.10
+            Behavior on c { ColorAnimation { duration: 500 } }
+            Behavior on k { NumberAnimation { duration: 500 } }
+            ShapePath {
+                strokeWidth: -1
+                fillGradient: RadialGradient {
+                    centerX: glow.width - 30; centerY: 10
+                    centerRadius: 330
+                    focalX: centerX; focalY: centerY
+                    GradientStop { position: 0.0; color: Qt.rgba(glow.c.r, glow.c.g, glow.c.b, 0.85 * glow.k) }
+                    GradientStop { position: 0.25; color: Qt.rgba(glow.c.r, glow.c.g, glow.c.b, 0.45 * glow.k) }
+                    GradientStop { position: 0.55; color: Qt.rgba(glow.c.r, glow.c.g, glow.c.b, 0.12 * glow.k) }
+                    GradientStop { position: 1.0; color: Qt.rgba(glow.c.r, glow.c.g, glow.c.b, 0) }
+                }
+                startX: 0; startY: 0
+                PathLine { x: glow.width; y: 0 }
+                PathLine { x: glow.width; y: glow.height }
+                PathLine { x: 0; y: glow.height }
+                PathLine { x: 0; y: 0 }
             }
           }
         }

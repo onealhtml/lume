@@ -301,7 +301,7 @@ class App:
         self.was_active = False
         self.window.show()
         win_id = int(self.window.winId())
-        if not self.system_glass and platform_tweaks.style_window(win_id):
+        if not self.system_glass and platform_tweaks.style_window(win_id, os.environ.get("LUME_GLASS", "blur")):
             self.system_glass = True
             self.backend.stateChanged.emit()
         self.window.raise_()

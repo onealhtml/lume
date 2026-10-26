@@ -15,7 +15,12 @@
 - Reconecta sozinho se a lâmpada for desligada no interruptor ou mudar de IP
 - Não ocupa a barra de tarefas nem o Dock
 
-## Instalar e rodar
+## Baixar
+
+Instaladores prontos para Windows, Linux e macOS na página de
+[Releases](https://github.com/onealhtml/lume/releases/latest).
+
+## Rodar pelo código
 
 Precisa de Python 3.10 ou mais novo.
 
@@ -58,6 +63,10 @@ A opção **Iniciar com o sistema** cria a entrada certa para cada sistema (regi
 | `smartlife_qr.py` | login por QR code no Smart Life para pegar a chave local |
 | `platform_tweaks.py` | ajustes de cada sistema (vidro do Windows, esconder do Dock no macOS) |
 | `icons.py` | desenha o ícone da bandeja na cor da lâmpada; `python icons.py` recria `assets/` |
+
+Para gerar os instaladores: `packaging/` tem o spec do PyInstaller, o script do Inno Setup
+(Windows) e os scripts de AppImage (Linux) e DMG (macOS). Ao publicar uma tag `vX.Y.Z`, o
+workflow `.github/workflows/release.yml` compila nos três sistemas e cria o Release.
 
 A configuração (incluindo a chave local da lâmpada) fica fora do repositório, em
 `%APPDATA%\Lume` (Windows), `~/.config/lume` (Linux) ou `~/Library/Application Support/Lume` (macOS).

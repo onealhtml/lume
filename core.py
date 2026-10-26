@@ -10,7 +10,9 @@ import time
 
 import tinytuya
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+FROZEN = getattr(sys, "frozen", False)  # rodando do executavel gerado pelo PyInstaller
+# arquivos do app (ui/, assets/): no executavel ficam na pasta temporaria/interna do PyInstaller
+APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CONFIG = {"id": "", "ip": "Auto", "key": "", "version": "3.5", "name": "Lâmpada", "last_ip": "",
                   "glass": "acrylic"}  # vidro no Windows: "acrylic" ou "blur"
 
@@ -55,6 +57,9 @@ _LINUX_DESKTOP = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expan
 
 
 def _launch_cmd():
+    if FROZEN:
+        # AppImage: o executavel interno muda de lugar a cada execucao; o arquivo .AppImage nao
+        return [os.environ.get("APPIMAGE") or sys.executable]
     exe = sys.executable
     if sys.platform == "win32":  # pythonw: sem janela de console
         exe = os.path.join(os.path.dirname(exe), "pythonw.exe")

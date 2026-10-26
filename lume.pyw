@@ -17,7 +17,7 @@ import platform_tweaks
 import smartlife_qr
 from icons import tray_icon
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = core.APP_DIR
 QML_PATH = os.path.join(APP_DIR, "ui", "Main.qml")
 ICON_PATH = os.path.join(APP_DIR, "assets", "lume.png")
 EDGE = 12  # distancia do painel ate a borda da area de trabalho
@@ -351,4 +351,8 @@ class App:
 
 
 if __name__ == "__main__":
+    if core.FROZEN:
+        # sem console no executavel: erros vao para lume.log, ao lado da configuracao
+        os.makedirs(core.config_dir(), exist_ok=True)
+        sys.stdout = sys.stderr = open(os.path.join(core.config_dir(), "lume.log"), "w", encoding="utf-8", buffering=1)
     sys.exit(App().run())

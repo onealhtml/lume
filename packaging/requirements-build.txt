@@ -1,0 +1,5 @@
+-r ../requirements.txt
+pyinstaller>=6.22
+# cryptography 50+ no Python 3.15 vem compilada para a ABI "abi3t", que o PyInstaller
+# ainda nao empacota (o executavel quebra ao importar tinytuya). A 49 usa a abi3 normal.
+cryptography<50

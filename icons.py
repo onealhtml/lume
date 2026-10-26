@@ -1,5 +1,8 @@
-"""Icones do Lume: o orbe de luz. `python icons.py` gera assets/lume.ico."""
+"""Imagens do Lume: o orbe de luz e a roda de cores. `python icons.py` gera a pasta assets/."""
+import colorsys
+import math
 import os
+import sys
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -72,15 +75,35 @@ def app_icon(size=256):
     return Image.alpha_composite(bg, clipped).resize((size, size), Image.LANCZOS)
 
 
+def color_wheel(size=460):
+    """Matiz no angulo (0 = direita, sentido horario com y para baixo), saturacao no raio."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    px = img.load()
+    R = size / 2
+    for y in range(size):
+        for x in range(size):
+            dx, dy = x + 0.5 - R, y + 0.5 - R
+            d = math.hypot(dx, dy)
+            if d > R:
+                continue
+            h = (math.degrees(math.atan2(dy, dx)) + 360) % 360
+            r, g, b = (round(v * 255) for v in colorsys.hsv_to_rgb(h / 360, min(1, d / R), 1))
+            px[x, y] = (r, g, b, round(255 * min(1, R - d)))
+    return img
+
+
 if __name__ == "__main__":
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
     os.makedirs(out, exist_ok=True)
     icon = app_icon(256)
     icon.save(os.path.join(out, "lume.ico"), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     icon.save(os.path.join(out, "lume.png"))
-    # pre-visualizacao do icone da bandeja
+    color_wheel().save(os.path.join(out, "wheel.png"))
+    if "--preview" not in sys.argv:
+        raise SystemExit
+    # pre-visualizacao do icone da bandeja (nao vai para o repositorio)
     strip = Image.new("RGBA", (64 * 4, 64), (0, 0, 0, 0))
     for i, rgb in enumerate([None, (255, 177, 92), (255, 40, 60), (60, 120, 255)]):
         strip.paste(tray_icon(rgb), (i * 64, 0))
-    strip.save(os.path.join(out, "tray-preview.png"))
+    strip.save("tray-preview.png")
     print("ok")

@@ -1,6 +1,5 @@
+PySide6-Essentials>=6.8
 tinytuya
-pywebview
-pystray
 pillow
 qrcode[pil]
 tuya-device-sharing-sdk

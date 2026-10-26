@@ -1,0 +1,4 @@
+# tem a chave local da lampada
+config.json
+__pycache__/
+*.pyc

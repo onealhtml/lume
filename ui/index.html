@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Lâmpada</title>
+<style>
+  :root {
+    --lamp: rgb(255, 196, 120);
+    --lamp-alpha: .55;
+    --ink: #f5f5f7;
+    --ink-2: rgba(245, 245, 247, .62);
+    --ink-3: rgba(245, 245, 247, .38);
+    --hair: rgba(255, 255, 255, .14);
+    --base-1: rgba(38, 40, 48, .42);
+    --base-2: rgba(20, 21, 26, .62);
+    --ease: cubic-bezier(.2, .9, .25, 1.15);
+    --text: "SF Pro Text", "SF Pro Display", -apple-system, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    --display: "SF Pro Display", -apple-system, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+    --rounded: "SF Pro Rounded", "SF Pro Display", -apple-system, "Segoe UI Variable Display", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: transparent; height: 100%; overflow: hidden; }
+  body {
+    font: 13px/1.35 var(--text);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  :focus-visible { outline: 2px solid rgba(255, 255, 255, .8); outline-offset: 2px; }
+
+  /* ---------- painel ---------- */
+  .panel {
+    position: relative;
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+    /* o acrilico do Windows fica por tras; aqui so um veu escuro para dar contraste */
+    background: linear-gradient(180deg, var(--base-1), var(--base-2));
+    isolation: isolate;
+  }
+  .panel.enter { animation: rise .28s var(--ease); }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+
+  /* a luz da lampada atras do vidro */
+  .glow {
+    position: absolute; z-index: -1;
+    width: 300px; height: 300px; right: -70px; top: -60px;
+    border-radius: 50%;
+    background: var(--lamp);
+    opacity: var(--lamp-alpha);
+    filter: blur(70px);
+    transition: background-color .5s ease, opacity .5s ease;
+  }
+  .glow.two { width: 200px; height: 200px; left: -80px; right: auto; top: 250px; opacity: calc(var(--lamp-alpha) * .45); }
+
+  .view { position: absolute; inset: 0; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+          transition: transform .32s var(--ease), opacity .2s ease; }
+  .view.off-right { transform: translateX(105%); opacity: 0; pointer-events: none; }
+  .view.off-left { transform: translateX(-30%); opacity: 0; pointer-events: none; }
+
+  /* ---------- vidro ---------- */
+  .glass {
+    position: relative;
+    background: linear-gradient(160deg, rgba(255, 255, 255, .15), rgba(255, 255, 255, .045) 55%, rgba(255, 255, 255, .08));
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--hair);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .32),
+      inset 0 -1px 1px rgba(255, 255, 255, .05),
+      0 10px 24px -14px rgba(0, 0, 0, .7);
+  }
+  /* reflexo especular no topo, o que da o aspecto "liquido" */
+  .glass::before {
+    content: ""; position: absolute; inset: 1px 1px auto 1px; height: 45%;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .13), transparent);
+    pointer-events: none;
+  }
+
+  /* ---------- cabecalho ---------- */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 0 4px; }
+  h1 { font: 600 20px/1.1 var(--display); letter-spacing: -.02em; }
+  .sub { color: var(--ink-2); margin-top: 3px; font-size: 12.5px; }
+  .round { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .round svg { width: 17px; height: 17px; }
+
+  /* ---------- grade principal ---------- */
+  .grid { display: grid; grid-template-columns: 96px 1fr; gap: 12px; flex: 1; min-height: 0; }
+  .col { display: grid; grid-template-rows: 1fr auto; gap: 12px; min-height: 0; }
+
+  /* brilho: pilula vertical estilo central de controle */
+  .bright {
+    border-radius: 30px; overflow: hidden; cursor: ns-resize; touch-action: none;
+  }
+  .bright .fill {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    height: 60%;
+    background: linear-gradient(180deg, #fff, rgba(255, 255, 255, .86));
+    box-shadow: 0 -10px 30px -6px var(--lamp);
+    transition: height .12s ease-out;
+  }
+  .bright.dragging .fill { transition: none; }
+  .bright .sun { position: absolute; left: 50%; top: 18px; translate: -50% 0; width: 22px; height: 22px; color: var(--ink-2); z-index: 1; }
+  .bright .val {
+    position: absolute; left: 0; right: 0; bottom: 16px; text-align: center; z-index: 1;
+    font: 600 22px/1 var(--rounded); color: #1d1d22; letter-spacing: -.02em;
+    mix-blend-mode: normal; transition: color .2s;
+  }
+  .bright .val small { font-size: 12px; font-weight: 500; }
+  .bright.low .val { color: var(--ink); }
+  .is-off .bright .fill { background: rgba(255, 255, 255, .28); box-shadow: none; }
+  .is-off .bright .val { color: var(--ink-2); }
+
+  /* liga/desliga */
+  .power {
+    border-radius: 22px; padding: 16px; text-align: left;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .knob {
+    width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--lamp); color: #1d1d22;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, .35) inset, 0 6px 22px -2px var(--lamp);
+    transition: background-color .4s, box-shadow .4s, color .2s;
+  }
+  .knob svg { width: 22px; height: 22px; }
+  .is-off .knob { background: rgba(255, 255, 255, .1); color: var(--ink); box-shadow: 0 0 0 1px rgba(255, 255, 255, .18) inset; }
+  .power b { display: block; font: 600 17px/1.15 var(--display); letter-spacing: -.01em; }
+  .power small { color: var(--ink-2); font-size: 12px; }
+  .power:active .knob { transform: scale(.94); }
+
+  /* temperatura */
+  .temp { border-radius: 22px; padding: 13px 14px 12px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .row span:first-child { font-weight: 600; font-size: 13px; }
+  .row span:last-child { color: var(--ink-2); font: 500 12px var(--rounded); }
+  .track {
+    position: relative; height: 26px; margin: 10px 0; border-radius: 13px; cursor: ew-resize; touch-action: none;
+    background: linear-gradient(90deg, #ffa94d, #ffd9a8 45%, #f4f1ff 70%, #bcd4ff);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .35), inset 0 0 0 1px rgba(255, 255, 255, .2);
+  }
+  .thumb {
+    position: absolute; top: 50%; width: 30px; height: 30px; border-radius: 50%;
+    translate: -50% -50%; left: 50%;
+    background: rgba(255, 255, 255, .35);
+    backdrop-filter: blur(6px);
+    border: 2px solid #fff;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, .35);
+    transition: left .12s ease-out;
+  }
+  .track.dragging .thumb { transition: none; scale: 1.08; }
+  .mode-colour .temp .thumb { opacity: .45; }
+  .chips { display: flex; gap: 6px; }
+  .chip {
+    flex: 1; height: 26px; border-radius: 13px; font-size: 12px; font-weight: 500;
+    background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .1);
+  }
+  .chip:hover { background: rgba(255, 255, 255, .14); }
+
+  /* cores */
+  .colors { border-radius: 22px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; }
+  .sw {
+    width: 30px; height: 30px; border-radius: 50%; position: relative;
+    background: var(--c);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, .5), inset 0 -2px 4px rgba(0, 0, 0, .25), 0 2px 8px -2px var(--c);
+    transition: transform .15s var(--ease);
+  }
+  .sw:hover { transform: scale(1.1); }
+  .sw.on::after {
+    content: ""; position: absolute; inset: -5px; border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, .9);
+  }
+  .sw.wheel { background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); --c: rgba(255, 255, 255, .3); }
+
+  /* ---------- roda de cores ---------- */
+  .sheet {
+    position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 5;
+    border-radius: 24px; padding: 16px;
+    background: linear-gradient(160deg, rgba(60, 62, 72, .82), rgba(30, 31, 38, .9));
+    transition: transform .34s var(--ease), opacity .2s;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+  .sheet.closed { transform: translateY(110%); opacity: 0; pointer-events: none; }
+  .sheet header { width: 100%; }
+  .wheel-wrap { position: relative; width: 230px; height: 230px; touch-action: none; cursor: crosshair; }
+  #wheel { width: 230px; height: 230px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, .2), 0 10px 30px -8px rgba(0, 0, 0, .6); }
+  .wheel-wrap .thumb { transition: none; width: 26px; height: 26px; }
+
+  /* ---------- configuracoes ---------- */
+  #settings { overflow-y: auto; scrollbar-width: none; gap: 10px; }
+  #settings::-webkit-scrollbar { display: none; }
+  .group { border-radius: 18px; padding: 4px 0; }
+  .field { display: flex; align-items: center; gap: 10px; padding: 8px 14px; }
+  .field + .field { border-top: 1px solid rgba(255, 255, 255, .07); }
+  .field label { width: 74px; flex: none; color: var(--ink-2); font-size: 12.5px; }
+  .field input {
+    flex: 1; min-width: 0; font: 13px var(--text); color: var(--ink); background: none; border: 0; outline: none;
+    user-select: text;
+  }
+  .field input::placeholder { color: var(--ink-3); }
+  .seg { display: flex; flex: 1; background: rgba(0, 0, 0, .25); border-radius: 9px; padding: 2px; }
+  .seg button { flex: 1; padding: 4px 0; border-radius: 7px; font-size: 12px; color: var(--ink-2); }
+  .seg button.on { background: rgba(255, 255, 255, .2); color: var(--ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25); }
+  .btn {
+    height: 36px; border-radius: 12px; padding: 0 14px; font-weight: 500; font-size: 13px;
+  }
+  .btn.primary { background: #fff; color: #1d1d22; font-weight: 600; box-shadow: 0 4px 16px -4px var(--lamp); }
+  .btn.primary:hover { background: #f0f0f3; }
+  .btns { display: flex; gap: 8px; }
+  .btns .btn { flex: 1; }
+  .hint { color: var(--ink-2); font-size: 12px; padding: 0 6px; }
+  .qr { display: none; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border-radius: 18px; }
+  .qr.show { display: flex; }
+  .qr img { width: 170px; height: 170px; border-radius: 12px; background: #fff; padding: 6px; image-rendering: pixelated; }
+  .switch { position: relative; width: 44px; height: 26px; border-radius: 13px; background: rgba(255, 255, 255, .16); transition: background .2s; flex: none; margin-left: auto; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.3); transition: transform .22s var(--ease); }
+  .switch.on { background: #34c759; }
+  .switch.on::after { transform: translateX(18px); }
+  .quit { color: #ff6961; font-size: 12.5px; padding: 6px; align-self: center; }
+
+  .status {
+    position: absolute; left: 18px; right: 18px; bottom: 14px; z-index: 6;
+    padding: 9px 12px; border-radius: 14px; font-size: 12px; text-align: center;
+    background: rgba(255, 255, 255, .12); backdrop-filter: blur(20px);
+    border: 1px solid var(--hair);
+    transition: opacity .2s, transform .25s var(--ease);
+  }
+  .status:empty { opacity: 0; transform: translateY(10px); pointer-events: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="panel is-off" id="panel">
+  <div class="glow"></div>
+  <div class="glow two"></div>
+
+  <!-- painel principal -->
+  <div class="view" id="main">
+    <header>
+      <div>
+        <h1 id="name">Lâmpada</h1>
+        <p class="sub" id="sub">Conectando…</p>
+      </div>
+      <button class="glass round" id="open-settings" aria-label="Configurações">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </header>
+
+    <div class="grid">
+      <div class="glass bright" id="bright" role="slider" tabindex="0" aria-label="Brilho" aria-valuemin="1" aria-valuemax="100">
+        <div class="fill" id="bright-fill"></div>
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <span class="val" id="bright-val">100<small>%</small></span>
+      </div>
+
+      <div class="col">
+        <button class="glass power" id="power">
+          <span class="knob"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/></svg></span>
+          <span><b id="power-label">Apagada</b><small id="power-hint">Clique para acender</small></span>
+        </button>
+
+        <div class="glass temp">
+          <div class="row"><span>Branco</span><span id="kelvin">4600 K</span></div>
+          <div class="track" id="temp" role="slider" tabindex="0" aria-label="Temperatura do branco" aria-valuemin="0" aria-valuemax="100"><div class="thumb" id="temp-thumb"></div></div>
+          <div class="chips">
+            <button class="chip" data-temp="0">Quente</button>
+            <button class="chip" data-temp="50">Neutro</button>
+            <button class="chip" data-temp="100">Frio</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass colors" id="swatches"></div>
+  </div>
+
+  <!-- roda de cores -->
+  <div class="glass sheet closed" id="sheet">
+    <header>
+      <h1 style="font-size:17px">Cor</h1>
+      <button class="btn primary" id="sheet-done" style="height:30px">Pronto</button>
+    </header>
+    <div class="wheel-wrap" id="wheel-wrap">
+      <canvas id="wheel" width="460" height="460"></canvas>
+      <div class="thumb" id="wheel-thumb"></div>
+    </div>
+  </div>
+
+  <!-- configuracoes -->
+  <div class="view off-right" id="settings">
+    <header>
+      <div><h1>Configurações</h1><p class="sub">Conexão com a lâmpada na sua rede</p></div>
+      <button class="glass round" id="close-settings" aria-label="Voltar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+    </header>
+
+    <div class="glass group">
+      <div class="field"><label for="f-name">Nome</label><input id="f-name" placeholder="Lâmpada"></div>
+      <div class="field"><label for="f-id">ID</label><input id="f-id" placeholder="ID do aparelho" spellcheck="false"></div>
+      <div class="field"><label for="f-key">Chave local</label><input id="f-key" type="password" placeholder="Pegue com o Smart Life" spellcheck="false"></div>
+      <div class="field"><label for="f-ip">IP</label><input id="f-ip" placeholder="Auto" spellcheck="false"></div>
+      <div class="field"><label>Versão</label>
+        <div class="seg" id="f-version"><button data-v="3.3">3.3</button><button data-v="3.4">3.4</button><button data-v="3.5">3.5</button></div>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button class="glass btn" id="scan">Procurar na rede</button>
+      <button class="glass btn" id="sl-open">Login Smart Life</button>
+    </div>
+
+    <div class="glass qr" id="sl">
+      <p class="hint">No Smart Life: Eu › engrenagem › Conta e segurança › Código de usuário</p>
+      <div class="field" style="width:100%;padding:4px 4px"><input id="sl-code" placeholder="Código de usuário" spellcheck="false"><button class="btn primary" id="sl-go" style="height:30px">Gerar QR</button></div>
+      <img id="sl-img" alt="QR code para escanear no Smart Life" hidden>
+    </div>
+
+    <div class="glass group">
+      <div class="field"><label style="width:auto">Iniciar com o Windows</label><button class="switch" id="autostart" aria-label="Iniciar com o Windows"></button></div>
+    </div>
+
+    <button class="btn primary" id="save">Salvar e conectar</button>
+    <button class="quit" id="quit">Fechar o app</button>
+  </div>
+
+  <p class="status" id="status" role="status"></p>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const api = () => window.pywebview.api;
+let S = { connected: false, on: false, mode: "white", bright: 100, temp: 50, h: 30, s: 100, status: "" };
+let cfg = {};
+
+const SWATCHES = [
+  ["Vermelho", 0, 100], ["Laranja", 28, 100], ["Amarelo", 50, 100], ["Verde", 125, 100],
+  ["Azul", 225, 100], ["Roxo", 275, 100], ["Rosa", 320, 85],
+];
+
+/* ---------- cores ---------- */
+const kelvin = (t) => Math.round((2700 + t * 38) / 100) * 100;
+function whiteRgb(t) {
+  const w = [255, 170, 80], c = [205, 222, 255], k = t / 100;
+  return w.map((v, i) => Math.round(v + (c[i] - v) * k));
+}
+function hsvRgb(h, s) {
+  s /= 100;
+  const f = (n) => { const k = (n + h / 60) % 6; return Math.round(255 * (1 - s * Math.max(0, Math.min(k, 4 - k, 1)))); };
+  return [f(5), f(3), f(1)];
+}
+function hueName(h, s) {
+  if (s < 20) return "branco";
+  const names = [[15, "vermelho"], [45, "laranja"], [70, "amarelo"], [165, "verde"], [200, "ciano"], [255, "azul"], [290, "roxo"], [340, "rosa"], [361, "vermelho"]];
+  return names.find(([max]) => h < max)[1];
+}
+function lampRgb() { return S.mode === "colour" ? hsvRgb(S.h, S.s) : whiteRgb(S.temp); }
+
+/* ---------- render ---------- */
+function render() {
+  const p = $("#panel");
+  const on = S.connected && S.on;
+  p.classList.toggle("is-off", !on);
+  p.classList.toggle("mode-colour", S.mode === "colour");
+  const [r, g, b] = lampRgb();
+  p.style.setProperty("--lamp", on ? `rgb(${r},${g},${b})` : "rgb(120,124,140)");
+  p.style.setProperty("--lamp-alpha", on ? (0.25 + S.bright / 100 * 0.5).toFixed(2) : 0.12);
+
+  $("#name").textContent = cfg.name || "Lâmpada";
+  let sub;
+  if (!S.connected) sub = S.status || "Desconectada";
+  else if (!S.on) sub = "Apagada";
+  else if (S.mode === "colour") sub = `Acesa em ${hueName(S.h, S.s)}`;
+  else sub = `Acesa em branco ${S.temp < 34 ? "quente" : S.temp > 66 ? "frio" : "neutro"}`;
+  $("#sub").textContent = sub;
+
+  $("#power-label").textContent = on ? "Acesa" : "Apagada";
+  $("#power-hint").textContent = on ? "Clique para apagar" : "Clique para acender";
+
+  $("#bright-fill").style.height = S.bright + "%";
+  $("#bright-val").innerHTML = `${S.bright}<small>%</small>`;
+  $("#bright").classList.toggle("low", S.bright < 18);
+  $("#bright").setAttribute("aria-valuenow", S.bright);
+
+  $("#temp-thumb").style.left = `calc(13px + (100% - 26px) * ${S.temp / 100})`;
+  $("#temp").setAttribute("aria-valuenow", S.temp);
+  $("#kelvin").textContent = S.mode === "colour" ? "modo cor" : `${kelvin(S.temp)} K`;
+
+  document.querySelectorAll(".sw[data-h]").forEach((el) => {
+    const dh = Math.min(Math.abs(el.dataset.h - S.h), 360 - Math.abs(el.dataset.h - S.h));
+    el.classList.toggle("on", S.mode === "colour" && dh < 8 && Math.abs(el.dataset.s - S.s) < 10);
+  });
+  placeWheelThumb();
+}
+
+function toast(msg, ms = 3200) {
+  const el = $("#status");
+  el.textContent = msg;
+  clearTimeout(toast.t);
+  if (ms) toast.t = setTimeout(() => (el.textContent = ""), ms);
+}
+
+/* ---------- envio com limite de taxa: no maximo 1 comando a cada 120 ms por controle ---------- */
+function throttled(fn, wait = 120) {
+  let last = 0, timer = null, args = null;
+  return (...a) => {
+    args = a;
+    const run = () => { last = Date.now(); timer = null; fn(...args); };
+    const left = wait - (Date.now() - last);
+    if (left <= 0) run();
+    else if (!timer) timer = setTimeout(run, left);
+  };
+}
+/* o Python devolve false se a lampada caiu: avisa e volta a mostrar o estado real */
+async function sent(call) {
+  if ((await call) !== false) return;
+  toast("A lâmpada não está conectada");
+  S = { ...S, ...(await api().get_state()) }; render();
+}
+const sendBright = throttled((v) => sent(api().brightness(v)));
+const sendTemp = throttled((v) => sent(api().temperature(v)));
+const sendColour = throttled((h, s) => sent(api().colour(h, s)));
+
+function needConnection() {
+  if (S.connected) return false;
+  toast(cfg.key ? "A lâmpada não está conectada" : "Configure a lâmpada primeiro");
+  return true;
+}
+
+/* arrastar em um elemento, com a posicao normalizada 0..1 */
+function drag(el, onMove) {
+  el.addEventListener("pointerdown", (e) => {
+    if (needConnection()) return;
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("dragging");
+    onMove(e, el.getBoundingClientRect());
+    const move = (ev) => onMove(ev, el.getBoundingClientRect());
+    const up = () => { el.classList.remove("dragging"); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  });
+}
+
+drag($("#bright"), (e, r) => {
+  S.bright = Math.max(1, Math.min(100, Math.round((1 - (e.clientY - r.top) / r.height) * 100)));
+  S.on = true; render(); sendBright(S.bright);
+});
+drag($("#temp"), (e, r) => {
+  S.temp = Math.max(0, Math.min(100, Math.round(((e.clientX - r.left - 13) / (r.width - 26)) * 100)));
+  S.on = true; S.mode = "white"; render(); sendTemp(S.temp);
+});
+
+function keyStep(el, key, getter, setter) {
+  el.addEventListener("keydown", (e) => {
+    const d = { ArrowUp: 5, ArrowRight: 5, ArrowDown: -5, ArrowLeft: -5 }[e.key];
+    if (!d || needConnection()) return;
+    e.preventDefault(); setter(getter() + d);
+  });
+}
+keyStep($("#bright"), "bright", () => S.bright, (v) => { S.bright = Math.max(1, Math.min(100, v)); render(); sendBright(S.bright); });
+keyStep($("#temp"), "temp", () => S.temp, (v) => { S.temp = Math.max(0, Math.min(100, v)); S.mode = "white"; render(); sendTemp(S.temp); });
+
+$("#power").onclick = () => {
+  if (needConnection()) return;
+  S.on = !S.on; render(); sent(api().power(S.on));
+};
+document.querySelectorAll(".chip").forEach((c) => (c.onclick = () => {
+  if (needConnection()) return;
+  S.temp = +c.dataset.temp; S.mode = "white"; S.on = true; render(); sent(api().temperature(S.temp));
+}));
+
+/* amostras de cor */
+const swBox = $("#swatches");
+for (const [name, h, s] of SWATCHES) {
+  const b = document.createElement("button");
+  const [r, g, bl] = hsvRgb(h, s);
+  b.className = "sw"; b.dataset.h = h; b.dataset.s = s; b.title = name; b.setAttribute("aria-label", name);
+  b.style.setProperty("--c", `rgb(${r},${g},${bl})`);
+  b.onclick = () => { if (needConnection()) return; Object.assign(S, { h, s, mode: "colour", on: true }); render(); sent(api().colour(h, s)); };
+  swBox.append(b);
+}
+const wheelBtn = document.createElement("button");
+wheelBtn.className = "sw wheel"; wheelBtn.title = "Mais cores"; wheelBtn.setAttribute("aria-label", "Mais cores");
+wheelBtn.onclick = () => { if (!needConnection()) $("#sheet").classList.remove("closed"); };
+swBox.append(wheelBtn);
+$("#sheet-done").onclick = () => $("#sheet").classList.add("closed");
+
+/* roda de cores: matiz no angulo, saturacao no raio */
+(function drawWheel() {
+  const c = $("#wheel"), x = c.getContext("2d"), R = c.width / 2;
+  const img = x.createImageData(c.width, c.height);
+  for (let py = 0; py < c.height; py++) for (let px = 0; px < c.width; px++) {
+    const dx = px - R, dy = py - R, d = Math.hypot(dx, dy);
+    if (d > R) continue;
+    const h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+    const [r, g, b] = hsvRgb(h, Math.min(100, d / R * 100));
+    const i = (py * c.width + px) * 4;
+    img.data.set([r, g, b, d > R - 1 ? 255 * (R - d) : 255], i);
+  }
+  x.putImageData(img, 0, 0);
+})();
+function placeWheelThumb() {
+  const a = S.h * Math.PI / 180, d = S.s / 100 * 115;
+  const t = $("#wheel-thumb");
+  t.style.left = 115 + Math.cos(a) * d + "px";
+  t.style.top = 115 + Math.sin(a) * d + "px";
+  const [r, g, b] = hsvRgb(S.h, S.s);
+  t.style.background = `rgb(${r},${g},${b})`;
+}
+drag($("#wheel-wrap"), (e, r) => {
+  const dx = e.clientX - r.left - r.width / 2, dy = e.clientY - r.top - r.height / 2;
+  S.h = Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360);
+  S.s = Math.round(Math.min(1, Math.hypot(dx, dy) / (r.width / 2)) * 100);
+  S.mode = "colour"; S.on = true; render(); sendColour(S.h, S.s);
+});
+
+/* ---------- configuracoes ---------- */
+function showView(name) {
+  $("#main").classList.toggle("off-left", name === "settings");
+  $("#settings").classList.toggle("off-right", name !== "settings");
+  $("#sheet").classList.add("closed");
+  if (name === "settings" && !dirty) fillSettings();
+}
+/* campos editados e ainda nao salvos sobrevivem a fechar o painel */
+let dirty = false;
+document.querySelectorAll("#settings input").forEach((i) => i.addEventListener("input", () => (dirty = true)));
+async function fillSettings() {
+  cfg = await api().get_config();
+  $("#f-name").value = cfg.name || "";
+  $("#f-id").value = cfg.id || "";
+  $("#f-key").value = cfg.key || "";
+  $("#f-ip").value = cfg.ip || "";
+  setVersion(cfg.version || "3.5");
+  $("#autostart").classList.toggle("on", !!cfg.autostart);
+}
+function setVersion(v) { document.querySelectorAll("#f-version button").forEach((b) => b.classList.toggle("on", b.dataset.v === v)); }
+document.querySelectorAll("#f-version button").forEach((b) => (b.onclick = () => { setVersion(b.dataset.v); dirty = true; }));
+
+$("#open-settings").onclick = () => showView("settings");
+$("#close-settings").onclick = () => showView("main");
+
+$("#autostart").onclick = async () => {
+  const on = !$("#autostart").classList.contains("on");
+  $("#autostart").classList.toggle("on", on);
+  const real = await api().set_autostart(on);
+  $("#autostart").classList.toggle("on", real);
+  if (real !== on) toast("Não consegui mudar a inicialização com o Windows");
+};
+
+$("#scan").onclick = async () => {
+  const btn = $("#scan");
+  btn.disabled = true; btn.textContent = "Procurando…";
+  let found = [];
+  try { found = await api().scan(); } finally { btn.disabled = false; btn.textContent = "Procurar na rede"; }
+  if (!found.length) return toast("Nenhuma lâmpada respondeu. Ela está ligada e no mesmo Wi-Fi?", 5000);
+  dirty = true;
+  const d = found.find((f) => f.id === $("#f-id").value) || found[0];
+  $("#f-ip").value = d.ip;
+  if (!$("#f-id").value) $("#f-id").value = d.id;
+  if (d.version) setVersion(String(d.version));
+  toast(found.length > 1 ? `${found.length} aparelhos encontrados, usei ${d.ip}` : `Encontrada em ${d.ip}`);
+};
+
+$("#sl-open").onclick = () => { $("#sl").classList.toggle("show"); $("#sl-code").focus(); };
+$("#sl-go").onclick = async () => {
+  const code = $("#sl-code").value.trim();
+  if (!code) return $("#sl-code").focus();
+  $("#sl-go").disabled = true;
+  const r = await api().smartlife_start(code);
+  $("#sl-go").disabled = false;
+  if (r.error) return toast(r.error, 5000);
+  $("#sl-img").src = r.qr; $("#sl-img").hidden = false;
+  toast("Escaneie com o Smart Life e confirme no celular", 0);
+  const token = r.token, deadline = Date.now() + 4 * 60 * 1000;
+  const active = () => $("#sl").classList.contains("show") && !$("#settings").classList.contains("off-right")
+    && !$("#sl-img").hidden && $("#sl-img").src === r.qr;
+  while (active()) {
+    if (Date.now() > deadline) {
+      $("#sl-img").hidden = true;
+      return toast("O QR code expirou. Clique em Gerar QR de novo.", 5000);
+    }
+    await new Promise((res) => setTimeout(res, 2000));
+    if (!active()) break;
+    const devices = await api().smartlife_poll(token, code);
+    if (!devices) continue;
+    $("#sl-img").hidden = true; $("#sl").classList.remove("show");
+    if (devices.error) return toast(devices.error, 6000);
+    if (!devices.length) return toast("Nenhum aparelho nessa conta");
+    dirty = true;
+    const d = devices[0];
+    $("#f-id").value = d.id; $("#f-key").value = d.key; $("#f-ip").value = "Auto";
+    if (!$("#f-name").value || $("#f-name").value === "Lâmpada") $("#f-name").value = d.name;
+    return toast(`Chave de "${d.name}" preenchida. Clique em Salvar e conectar.`, 5000);
+  }
+  toast("");  // saiu da tela de login: limpa o aviso do QR
+};
+
+$("#save").onclick = async () => {
+  const version = document.querySelector("#f-version button.on")?.dataset.v || "3.5";
+  cfg = { name: $("#f-name").value || "Lâmpada", id: $("#f-id").value, key: $("#f-key").value, ip: $("#f-ip").value || "Auto", version };
+  await api().save_config(cfg);
+  dirty = false;
+  showView("main");
+};
+$("#quit").onclick = () => api().quit();
+
+/* ---------- ponte com o Python ---------- */
+window.onState = (st) => { S = { ...S, ...st }; render(); if (st.status && !st.connected) toast(st.status); };
+window.onShow = (st, view) => {
+  S = { ...S, ...st }; render();
+  showView(view);
+  const p = $("#panel");
+  p.classList.remove("enter"); void p.offsetWidth; p.classList.add("enter");
+};
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("#sheet").classList.contains("closed")) $("#sheet").classList.add("closed");
+  else api().hide();
+});
+window.addEventListener("pywebviewready", async () => {
+  cfg = await api().get_config();
+  S = { ...S, ...(await api().get_state()) };
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+tinytuya
+pywebview
+pystray
+pillow
+qrcode[pil]
+tuya-device-sharing-sdk

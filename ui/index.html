@@ -452,15 +452,26 @@ drag($("#temp"), (e, r) => {
   S.on = true; S.mode = "white"; render(); sendTemp(S.temp);
 });
 
-function keyStep(el, key, getter, setter) {
+/* setas do teclado e rodinha do mouse: 5% por passo (um "clique" da rodinha = 100 de delta) */
+function stepper(el, getter, setter) {
   el.addEventListener("keydown", (e) => {
     const d = { ArrowUp: 5, ArrowRight: 5, ArrowDown: -5, ArrowLeft: -5 }[e.key];
     if (!d || needConnection()) return;
     e.preventDefault(); setter(getter() + d);
   });
+  let acc = 0;  // touchpad manda deltas pequenos: acumula ate dar 1%
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    if (needConnection()) return;
+    acc += -e.deltaY - e.deltaX;  // rolar pra cima ou pra direita aumenta
+    const d = Math.trunc(acc / 20);
+    if (!d) return;
+    acc -= d * 20;
+    setter(getter() + d);
+  }, { passive: false });
 }
-keyStep($("#bright"), "bright", () => S.bright, (v) => { S.bright = Math.max(1, Math.min(100, v)); render(); sendBright(S.bright); });
-keyStep($("#temp"), "temp", () => S.temp, (v) => { S.temp = Math.max(0, Math.min(100, v)); S.mode = "white"; render(); sendTemp(S.temp); });
+stepper($("#bright"), () => S.bright, (v) => { S.bright = Math.max(1, Math.min(100, v)); S.on = true; render(); sendBright(S.bright); });
+stepper($("#temp"), () => S.temp, (v) => { S.temp = Math.max(0, Math.min(100, v)); S.mode = "white"; S.on = true; render(); sendTemp(S.temp); });
 
 $("#power").onclick = () => {
   if (needConnection()) return;

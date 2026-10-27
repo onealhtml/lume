@@ -14,6 +14,7 @@
 
 - Clique no ícone da bandeja (na barra de menus, no macOS) para abrir o painel: brilho, temperatura do
   branco, cores prontas e roda de cores
+- Várias lâmpadas: controle uma de cada vez ou todas juntas
 - Rodinha do mouse e setas do teclado funcionam nos controles
 - Reconecta sozinho se a lâmpada for desligada no interruptor ou mudar de IP
 - Não ocupa a barra de tarefas nem o Dock
@@ -58,8 +59,13 @@ xattr -dr com.apple.quarantine /Applications/Lume.app
 ## Configurar
 
 Na primeira vez o Lume abre as configurações. Clique em **Login Smart Life**; no app Smart Life vá em
-Eu › engrenagem › Conta e segurança › Código de usuário, cole o código, escaneie o QR e clique em
-**Salvar e conectar**. A lâmpada precisa estar pareada no Smart Life (ou Tuya Smart).
+Eu › engrenagem › Conta e segurança › Código de usuário, cole o código e escaneie o QR. O Lume lista
+as lâmpadas da conta: marque as que quiser e clique em **Adicionar selecionadas**. As lâmpadas
+precisam estar pareadas no Smart Life (ou Tuya Smart).
+
+O Lume continua conectado ao Smart Life, com o login cifrado pelo cofre do sistema (DPAPI no Windows,
+Chaves no macOS, Secret Service no Linux), então **Importar lâmpadas** adiciona lâmpadas novas depois
+sem o QR. **Sair** esquece o login. Sem cofre no sistema o Lume não guarda e pede o QR de novo.
 
 **Iniciar com o sistema** cria a entrada certa em cada sistema (registro no Windows,
 `~/.config/autostart` no Linux, LaunchAgent no macOS).

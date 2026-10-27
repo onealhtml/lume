@@ -29,6 +29,8 @@ Window {
     readonly property bool connected: !!st.connected
     readonly property bool lampOn: connected && !!st.on
     readonly property bool colourMode: st.mode === "colour"
+    readonly property bool canColour: st.colour !== false   // lampada so de branco: sem cores
+    readonly property bool canWhite: st.white !== false     // sem temperatura do branco
     readonly property int bright: st.bright === undefined ? 100 : st.bright
     readonly property int temp: st.temp === undefined ? 50 : st.temp
     readonly property int hue: st.h === undefined ? 30 : st.h
@@ -38,6 +40,13 @@ Window {
     property string view: "main"
     property bool sheetOpen: false
     property var cfg: ({})
+    readonly property var lamps: backend.lamps
+    readonly property bool allMode: backend.selected === "all"
+    readonly property string lampTitle: {
+        if (allMode) return tr("All lamps")
+        const l = lamps.find(x => x.id === backend.selected)
+        return l ? l.name : tr("Lamp")
+    }
 
     function whiteColor(t) {
         const k = t / 100
@@ -54,6 +63,11 @@ Window {
     }
     function subtitle() {
         if (!connected) return st.status || tr("Disconnected")
+        if (allMode) {  // "1 de 2 acesas, 1 desconectada"
+            const parts = [st.countOn ? tr("%1 of %2 on").arg(st.countOn).arg(st.count) : tr("Off")]
+            if (st.countLive < st.count) parts.push(tr("%1 offline").arg(st.count - st.countLive))
+            return parts.join(", ")
+        }
         if (!st.on) return tr("Off")
         const name = colourMode ? hueName(hue, sat) : temp < 34 ? "warm white" : temp > 66 ? "cool white" : "neutral white"
         // ingles: so a cor ("Warm white"); outros idiomas tem frase propria ("Acesa em branco quente")
@@ -65,7 +79,7 @@ Window {
     // comandos: o Python devolve false quando a lampada nao esta conectada
     function needConnection() {
         if (connected) return false
-        toast.show(cfg.key ? tr("The lamp is not connected") : tr("Set up the lamp first"))
+        toast.show(lamps.length ? tr("The lamp is not connected") : tr("Set up the lamp first"))
         return true
     }
     function send(ok) { if (ok === false) toast.show(tr("The lamp is not connected")) }
@@ -281,7 +295,7 @@ Window {
                             anchors.verticalCenter: parent.verticalCenter
                             x: 4
                             spacing: 3
-                            Txt { text: cfg.name || tr("Lamp"); font.family: displayFont; font.pixelSize: 20; font.weight: Font.DemiBold; font.letterSpacing: -0.4 }
+                            Txt { text: lampTitle; font.family: displayFont; font.pixelSize: 20; font.weight: Font.DemiBold; font.letterSpacing: -0.4 }
                             Txt { text: subtitle(); color: ink2; font.pixelSize: 12 }
                         }
                         RoundBtn {
@@ -291,9 +305,50 @@ Window {
                         }
                     }
 
+                    // qual lampada o painel controla: so aparece com mais de uma
+                    Flickable {
+                        id: chips
+                        visible: lamps.length > 1
+                        width: parent.width; height: 30
+                        contentWidth: chipRow.width; clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        Row {
+                            id: chipRow
+                            spacing: 6
+                            Repeater {
+                                model: [{ id: "all", name: tr("All"), on: lamps.some(l => l.on), connected: true }].concat(lamps)
+                                Rectangle {
+                                    required property var modelData
+                                    readonly property bool chosen: backend.selected === modelData.id
+                                    height: 30; radius: 15
+                                    width: chipLabel.implicitWidth + 34
+                                    color: chosen ? Qt.rgba(1, 1, 1, 0.9) : chipArea.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08)
+                                    border.color: chosen ? "transparent" : hair
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                    Rectangle {  // acesa / apagada / desconectada
+                                        x: 12; anchors.verticalCenter: parent.verticalCenter
+                                        width: 7; height: 7; radius: 3.5
+                                        color: !modelData.connected ? Qt.rgba(1, 1, 1, 0.25) : modelData.on ? "#ffc861" : (parent.chosen ? Qt.rgba(0, 0, 0, 0.25) : Qt.rgba(1, 1, 1, 0.45))
+                                    }
+                                    Txt {
+                                        id: chipLabel
+                                        x: 24; anchors.verticalCenter: parent.verticalCenter
+                                        text: modelData.name; font.pixelSize: 12; font.weight: Font.Medium
+                                        color: parent.chosen ? dark : ink
+                                    }
+                                    MouseArea {
+                                        id: chipArea
+                                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                        onClicked: backend.select(modelData.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Row {
                         width: parent.width
-                        height: parent.height - 40 - 70 - 24
+                        height: parent.height - 40 - 70 - 24 - (chips.visible ? 42 : 0)
                         spacing: 12
 
                         // brilho: pilula vertical
@@ -389,6 +444,7 @@ Window {
                             Glass {
                                 id: tempTile
                                 width: parent.width; height: 118
+                                enabled: canWhite; opacity: canWhite ? 1 : 0.35
                                 Column {
                                     anchors.fill: parent; anchors.margins: 13; anchors.leftMargin: 14; anchors.rightMargin: 14
                                     spacing: 10
@@ -466,6 +522,7 @@ Window {
                     // cores
                     Glass {
                         width: parent.width; height: 58
+                        enabled: canColour; opacity: canColour ? 1 : 0.35
                         Row {
                             anchors.centerIn: parent
                             spacing: (parent.width - 28 - 8 * 30) / 7
@@ -581,33 +638,49 @@ Window {
                 boundsBehavior: Flickable.StopAtBounds
 
                 property bool dirty: false
-                property string version: "3.5"
+                property var draft: []        // lampadas sendo editadas (copia da configuracao)
+                property int openIndex: -1    // lampada aberta para edicao
+                property var importList: []   // lampadas da conta Smart Life para escolher
+                property var importChecked: ({})
                 property string qrToken: ""
                 property string qrCode: ""
                 property double qrDeadline: 0
+                property bool polling: false
 
                 function fill() {
                     cfg = backend.getConfig()
-                    field(0).text = cfg.name || ""
-                    field(1).text = cfg.id || ""
-                    field(2).text = cfg.key || ""
-                    field(3).text = cfg.ip || ""
-                    version = cfg.version || "3.5"
+                    draft = cfg.lamps.map(l => Object.assign({}, l))
+                    openIndex = draft.length === 1 && !draft[0].key ? 0 : -1
                     autostart.on = !!cfg.autostart
+                    importList = []
                     dirty = false
                 }
+                function edit(i, key, value) {
+                    const list = draft.slice()
+                    list[i] = Object.assign({}, list[i], { [key]: value })
+                    draft = list
+                    dirty = true
+                }
+                function setDraft(list) { draft = list; dirty = true }
+                function lampLive(id) { const l = backend.lamps.find(x => x.id === id); return l ? l.connected : false }
 
                 Connections {
                     target: backend
                     function onScanFinished(found) {
                         scanBtn.text = tr("Find on network"); scanBtn.enabledBtn = true
                         if (!found.length) return toast.show(tr("No lamp answered. Is it on and on the same Wi-Fi?"), 5000)
-                        const d = found.find(f => f.id === settings.field(1).text) || found[0]
-                        settings.field(3).text = d.ip
-                        if (!settings.field(1).text) settings.field(1).text = d.id
-                        if (d.version) settings.version = d.version
-                        settings.dirty = true
-                        toast.show(found.length > 1 ? tr("%1 devices found, using %2").arg(found.length).arg(d.ip) : tr("Found at %1").arg(d.ip))
+                        const wasEmpty = !settings.draft.length
+                        const list = settings.draft.map(l => Object.assign({}, l))
+                        for (const f of found) {
+                            const known = list.find(l => l.id.trim() === f.id)
+                            const blank = list.find(l => !l.id.trim())
+                            if (known) { if (f.version) known.version = f.version }
+                            else if (blank) Object.assign(blank, { id: f.id, version: f.version || blank.version })
+                            else if (wasEmpty) list.push({ id: f.id, key: "", name: "", ip: f.ip, last_ip: "", version: f.version || "3.5" })
+                        }
+                        settings.setDraft(list)
+                        if (wasEmpty && list.length) settings.openIndex = 0
+                        toast.show(found.length > 1 ? tr("%1 devices found").arg(found.length) : tr("Found at %1").arg(found[0].ip))
                     }
                     function onSmartlifeQr(r) {
                         qrGo.enabledBtn = true
@@ -619,20 +692,30 @@ Window {
                         pollTimer.start()
                     }
                     function onSmartlifeResult(r) {
-                        if (!settings.qrToken) return
+                        settings.polling = false
                         if (r.pending) return
-                        settings.stopQr()
-                        slBox.open = false
+                        if (settings.qrToken) { settings.stopQr(); slBox.open = false }
+                        importBtn.enabledBtn = true
+                        if (r.expired) return toast.show(tr("Smart Life sign-in expired. Sign in again."), 5000)
                         if (r.error) return toast.show(r.error, 6000)
-                        if (!r.devices.length) return toast.show(tr("No devices on this account"))
-                        const d = r.devices[0]
-                        settings.field(1).text = d.id; settings.field(2).text = d.key; settings.field(3).text = "Auto"
-                        if (!settings.field(0).text || settings.field(0).text === tr("Lamp")) settings.field(0).text = d.name
-                        settings.dirty = true
-                        toast.show(tr("Key for \"%1\" filled in. Click Save and connect.").arg(d.name), 5000)
+                        if (r.remembered === false) toast.show(tr("Couldn't keep you signed in on this system"), 5000)
+                        const lights = r.devices.filter(d => d.light)
+                        if (!lights.length) return toast.show(tr("No lamps on this account"))
+                        const checked = {}
+                        for (const d of lights) checked[d.id] = !settings.draft.some(l => l.id === d.id)
+                        settings.importChecked = checked
+                        settings.importList = lights
+                    }
+                    function onImportFinished(r) {
+                        const saved = backend.getConfig().lamps.filter(l => r.ids.includes(l.id))
+                        const list = settings.draft.filter(l => !r.ids.includes(l.id.trim()))
+                        settings.draft = list.concat(saved.map(l => Object.assign({}, l)))
+                        let msg = tr("%1 lamps added").arg(r.added)
+                        if (r.missing.length) msg += "\n" + tr("Not found on the network: %1").arg(r.missing.join(", "))
+                        toast.show(msg, 5000)
                     }
                 }
-                function stopQr() { pollTimer.stop(); qrToken = ""; qrImg.source = ""; toast.hide() }
+                function stopQr() { pollTimer.stop(); qrToken = ""; qrImg.source = ""; polling = false; toast.hide() }
                 Timer {
                     id: pollTimer
                     interval: 2000; repeat: true
@@ -642,6 +725,8 @@ Window {
                             settings.stopQr()
                             return toast.show(tr("The QR code expired. Click Create QR again."), 5000)
                         }
+                        if (settings.polling) return
+                        settings.polling = true
                         backend.smartlifePoll(settings.qrToken, settings.qrCode)
                     }
                 }
@@ -666,55 +751,104 @@ Window {
                         }
                     }
 
+                    // ----- lampadas: uma linha por lampada; clicar abre os campos -----
                     Glass {
-                        width: parent.width; height: fields.height + 8; radius: 18
+                        visible: settings.draft.length > 0
+                        width: parent.width; height: lampList.height + 8; radius: 18
                         Column {
-                            id: fields
+                            id: lampList
                             y: 4; width: parent.width
                             Repeater {
-                                id: fieldRep
-                                model: [["Name", "Lamp", false], ["ID", "Device ID", false],
-                                        ["Local key", "Get it with Smart Life", true], ["IP", "Auto", false]]
-                                Item {
-                                    required property var modelData
+                                model: settings.draft.length
+                                Column {
+                                    id: lampRow
                                     required property int index
-                                    property alias input: tf
-                                    width: fields.width; height: 38
-                                    Rectangle { visible: index > 0; width: parent.width - 28; x: 14; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
-                                    Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; width: 78; text: tr(modelData[0]); color: ink2; font.pixelSize: 12 }
-                                    TextField {
-                                        id: tf
-                                        x: 96; width: parent.width - 96 - 10
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        placeholderText: tr(modelData[1])
-                                        placeholderTextColor: ink3
-                                        echoMode: modelData[2] ? TextInput.Password : TextInput.Normal
-                                        color: ink; font.family: textFont; font.pixelSize: 13
-                                        selectByMouse: true
-                                        background: null
-                                        leftPadding: 0
-                                        onTextEdited: settings.dirty = true
+                                    readonly property var lamp: settings.draft[index] || ({})
+                                    readonly property bool opened: settings.openIndex === index
+                                    width: lampList.width
+                                    Item {
+                                        width: parent.width; height: 42
+                                        Rectangle { visible: lampRow.index > 0; width: parent.width - 28; x: 14; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
+                                        Rectangle {
+                                            x: 14; anchors.verticalCenter: parent.verticalCenter
+                                            width: 8; height: 8; radius: 4
+                                            color: settings.lampLive(lampRow.lamp.id) ? "#34c759" : Qt.rgba(1, 1, 1, 0.25)
+                                        }
+                                        Txt {
+                                            x: 32; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 70
+                                            text: lampRow.lamp.name || tr("Lamp"); elide: Text.ElideRight
+                                        }
+                                        Icon {
+                                            anchors.right: parent.right; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter
+                                            name: "back"; width: 14; height: 14; tint: ink2; stroke: 2.2
+                                            rotation: lampRow.opened ? 90 : 270
+                                            Behavior on rotation { NumberAnimation { duration: 160 } }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                            onClicked: settings.openIndex = lampRow.opened ? -1 : lampRow.index
+                                        }
                                     }
-                                }
-                            }
-                            Item {
-                                width: fields.width; height: 40
-                                Rectangle { width: parent.width - 28; x: 14; height: 1; color: Qt.rgba(1, 1, 1, 0.07) }
-                                Txt { x: 14; anchors.verticalCenter: parent.verticalCenter; text: tr("Version"); color: ink2; font.pixelSize: 12 }
-                                Rectangle {
-                                    x: 96; width: parent.width - 96 - 14; height: 28
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    radius: 9; color: Qt.rgba(0, 0, 0, 0.25)
-                                    Row {
-                                        anchors.fill: parent; anchors.margins: 2
+                                    Column {
+                                        visible: lampRow.opened
+                                        width: parent.width
                                         Repeater {
-                                            model: ["3.3", "3.4", "3.5"]
+                                            model: [["name", "Name", "Lamp", false], ["id", "ID", "Device ID", false],
+                                                    ["key", "Local key", "Get it with Smart Life", true], ["ip", "IP", "Auto", false]]
+                                            Item {
+                                                required property var modelData
+                                                width: lampList.width; height: 36
+                                                Txt { x: 32; anchors.verticalCenter: parent.verticalCenter; width: 72; text: tr(modelData[1]); color: ink2; font.pixelSize: 12 }
+                                                TextField {
+                                                    x: 108; width: parent.width - 108 - 12
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: lampRow.lamp[modelData[0]] || ""
+                                                    placeholderText: tr(modelData[2])
+                                                    placeholderTextColor: ink3
+                                                    echoMode: modelData[3] ? TextInput.Password : TextInput.Normal
+                                                    color: ink; font.family: textFont; font.pixelSize: 13
+                                                    selectByMouse: true
+                                                    background: null
+                                                    leftPadding: 0
+                                                    onTextEdited: settings.edit(lampRow.index, modelData[0], text)
+                                                }
+                                            }
+                                        }
+                                        Item {
+                                            width: lampList.width; height: 38
+                                            Txt { x: 32; anchors.verticalCenter: parent.verticalCenter; text: tr("Version"); color: ink2; font.pixelSize: 12 }
                                             Rectangle {
-                                                required property string modelData
-                                                width: parent.width / 3; height: parent.height; radius: 7
-                                                color: settings.version === modelData ? Qt.rgba(1, 1, 1, 0.2) : "transparent"
-                                                Txt { anchors.centerIn: parent; text: modelData; font.pixelSize: 12; color: settings.version === modelData ? ink : ink2 }
-                                                MouseArea { anchors.fill: parent; onClicked: { settings.version = modelData; settings.dirty = true } }
+                                                x: 108; width: parent.width - 108 - 12; height: 28
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                radius: 9; color: Qt.rgba(0, 0, 0, 0.25)
+                                                Row {
+                                                    anchors.fill: parent; anchors.margins: 2
+                                                    Repeater {
+                                                        model: ["3.3", "3.4", "3.5"]
+                                                        Rectangle {
+                                                            required property string modelData
+                                                            readonly property bool chosen: (lampRow.lamp.version || "3.5") === modelData
+                                                            width: parent.width / 3; height: parent.height; radius: 7
+                                                            color: chosen ? Qt.rgba(1, 1, 1, 0.2) : "transparent"
+                                                            Txt { anchors.centerIn: parent; text: modelData; font.pixelSize: 12; color: parent.chosen ? ink : ink2 }
+                                                            MouseArea {
+                                                                anchors.fill: parent
+                                                                onClicked: settings.edit(lampRow.index, "version", modelData)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Txt {
+                                            x: 32; height: 30; verticalAlignment: Text.AlignVCenter
+                                            text: tr("Remove"); color: "#ff6961"; font.pixelSize: 12
+                                            MouseArea {
+                                                anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    settings.setDraft(settings.draft.filter((_, i) => i !== lampRow.index))
+                                                    settings.openIndex = -1
+                                                }
                                             }
                                         }
                                     }
@@ -733,50 +867,134 @@ Window {
                         }
                         Btn {
                             width: (parent.width - 8) / 2
-                            text: tr("Smart Life login")
-                            onClicked: { slBox.open = !slBox.open; if (slBox.open) qrCodeField.forceActiveFocus() }
+                            text: tr("Add manually")
+                            onClicked: {
+                                settings.setDraft(settings.draft.concat([{ id: "", key: "", name: "", ip: "Auto", last_ip: "", version: "3.5" }]))
+                                settings.openIndex = settings.draft.length - 1
+                            }
                         }
                     }
 
+                    // ----- Smart Life: entrar (QR) ou, ja logado, importar as lampadas da conta -----
                     Glass {
-                        id: slBox
-                        property bool open: false
-                        visible: open
                         width: parent.width; radius: 18
-                        height: slCol.height + 24
+                        height: slTop.height + 20
                         Column {
-                            id: slCol
-                            y: 12; x: 12; width: parent.width - 24; spacing: 8
-                            Txt {
-                                width: parent.width; wrapMode: Text.WordWrap; color: ink2; font.pixelSize: 12
-                                text: tr("In Smart Life: Me › gear › Account and Security › User Code")
-                            }
-                            Row {
-                                width: parent.width; spacing: 8
-                                TextField {
-                                    id: qrCodeField
-                                    width: parent.width - qrGo.width - 8; height: 30
-                                    placeholderText: tr("User code"); placeholderTextColor: ink3
-                                    color: ink; font.family: textFont; font.pixelSize: 13; selectByMouse: true
-                                    background: Rectangle { radius: 8; color: Qt.rgba(0, 0, 0, 0.25) }
-                                    onAccepted: qrGo.clicked()
+                            id: slTop
+                            x: 12; y: 10; width: parent.width - 24; spacing: 8
+                            Item {
+                                width: parent.width; height: 32
+                                Txt {
+                                    anchors.verticalCenter: parent.verticalCenter; width: parent.width - slButtons.width - 8
+                                    text: backend.smartlifeSignedIn ? tr("Signed in to Smart Life") : "Smart Life"
+                                    elide: Text.ElideRight
                                 }
-                                Btn {
-                                    id: qrGo
-                                    primary: true; text: tr("Create QR"); implicitHeight: 30
-                                    onClicked: {
-                                        if (!qrCodeField.text.trim()) return qrCodeField.forceActiveFocus()
-                                        enabledBtn = false
-                                        settings.qrCode = qrCodeField.text.trim()
-                                        backend.smartlifeStart(settings.qrCode)
+                                Row {
+                                    id: slButtons
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                    Btn {
+                                        id: importBtn
+                                        visible: backend.smartlifeSignedIn
+                                        primary: true; text: tr("Import lamps"); implicitHeight: 30
+                                        onClicked: { enabledBtn = false; backend.smartlifeDevices() }
+                                    }
+                                    Btn {
+                                        visible: backend.smartlifeSignedIn
+                                        text: tr("Sign out"); implicitHeight: 30
+                                        onClicked: { settings.importList = []; backend.smartlifeSignOut() }
+                                    }
+                                    Btn {
+                                        visible: !backend.smartlifeSignedIn
+                                        primary: true; text: tr("Smart Life login"); implicitHeight: 30
+                                        onClicked: { slBox.open = !slBox.open; if (slBox.open) qrCodeField.forceActiveFocus() }
                                     }
                                 }
                             }
-                            Rectangle {
-                                visible: qrImg.source != ""
-                                width: 182; height: 182; radius: 12; color: "white"
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                Image { id: qrImg; anchors.fill: parent; anchors.margins: 6; smooth: false; fillMode: Image.PreserveAspectFit }
+
+                            // login por QR
+                            Column {
+                                id: slBox
+                                property bool open: false
+                                visible: open && !backend.smartlifeSignedIn
+                                width: parent.width; spacing: 8
+                                Txt {
+                                    width: parent.width; wrapMode: Text.WordWrap; color: ink2; font.pixelSize: 12
+                                    text: tr("In Smart Life: Me › gear › Account and Security › User Code")
+                                }
+                                Row {
+                                    width: parent.width; spacing: 8
+                                    TextField {
+                                        id: qrCodeField
+                                        width: parent.width - qrGo.width - 8; height: 30
+                                        placeholderText: tr("User code"); placeholderTextColor: ink3
+                                        color: ink; font.family: textFont; font.pixelSize: 13; selectByMouse: true
+                                        background: Rectangle { radius: 8; color: Qt.rgba(0, 0, 0, 0.25) }
+                                        onAccepted: qrGo.clicked()
+                                    }
+                                    Btn {
+                                        id: qrGo
+                                        primary: true; text: tr("Create QR"); implicitHeight: 30
+                                        onClicked: {
+                                            if (!qrCodeField.text.trim()) return qrCodeField.forceActiveFocus()
+                                            enabledBtn = false
+                                            settings.qrCode = qrCodeField.text.trim()
+                                            backend.smartlifeStart(settings.qrCode)
+                                        }
+                                    }
+                                }
+                                Rectangle {
+                                    visible: qrImg.source != ""
+                                    width: 182; height: 182; radius: 12; color: "white"
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    Image { id: qrImg; anchors.fill: parent; anchors.margins: 6; smooth: false; fillMode: Image.PreserveAspectFit }
+                                }
+                            }
+
+                            // escolher quais lampadas da conta adicionar
+                            Column {
+                                visible: settings.importList.length > 0
+                                width: parent.width; spacing: 2
+                                Repeater {
+                                    model: settings.importList
+                                    Item {
+                                        required property var modelData
+                                        readonly property bool checked: !!settings.importChecked[modelData.id]
+                                        readonly property bool added: settings.draft.some(l => l.id === modelData.id)
+                                        width: parent.width; height: 34
+                                        Rectangle {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 20; height: 20; radius: 6
+                                            color: parent.checked ? "#34c759" : Qt.rgba(1, 1, 1, 0.1)
+                                            border.color: parent.checked ? "transparent" : Qt.rgba(1, 1, 1, 0.25)
+                                            Txt { anchors.centerIn: parent; text: "✓"; visible: parent.parent.checked; color: "white"; font.pixelSize: 13; font.weight: Font.Bold }
+                                        }
+                                        Txt {
+                                            x: 30; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 30
+                                            text: modelData.name + (parent.added ? " (" + tr("Already added") + ")" : "")
+                                            elide: Text.ElideRight
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                const c = Object.assign({}, settings.importChecked)
+                                                c[modelData.id] = !c[modelData.id]
+                                                settings.importChecked = c
+                                            }
+                                        }
+                                    }
+                                }
+                                Btn {
+                                    readonly property var chosen: settings.importList.filter(d => settings.importChecked[d.id])
+                                    width: parent.width; primary: true
+                                    enabledBtn: chosen.length > 0
+                                    text: tr("Add selected (%1)").arg(chosen.length)
+                                    onClicked: {
+                                        if (!enabledBtn) return
+                                        backend.importLamps(chosen)
+                                        settings.importList = []
+                                        toast.show(tr("Looking for the lamps on your network…"), 0)
+                                    }
+                                }
                             }
                         }
                     }
@@ -839,8 +1057,12 @@ Window {
                     Btn {
                         width: parent.width; primary: true; text: tr("Save and connect")
                         onClicked: {
-                            const f = i => fieldRep.itemAt(i).input.text.trim()
-                            backend.saveConfig({ name: f(0), id: f(1), key: f(2), ip: f(3) || "Auto", version: settings.version })
+                            const ids = settings.draft.map(l => l.id.trim())
+                            const missing = ids.indexOf("")
+                            if (missing >= 0) { settings.openIndex = missing; return toast.show(tr("Every lamp needs an ID")) }
+                            const dup = ids.findIndex((id, i) => ids.indexOf(id) !== i)
+                            if (dup >= 0) { settings.openIndex = dup; return toast.show(tr("Two lamps have the same ID")) }
+                            backend.saveLamps(settings.draft)
                             cfg = backend.getConfig()
                             settings.dirty = false
                             showView("main")
@@ -852,8 +1074,6 @@ Window {
                         MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor; onClicked: backend.quit() }
                     }
                 }
-                // campo i do formulario (o Repeater cria os TextField depois; por isso funcao, nao propriedade)
-                function field(i) { return fieldRep.itemAt(i).input }
             }
         }
 

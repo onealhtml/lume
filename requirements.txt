@@ -3,3 +3,5 @@ tinytuya
 pillow
 qrcode[pil]
 tuya-device-sharing-sdk
+# cofre do sistema para o login do Smart Life (no Windows o Lume usa o DPAPI direto)
+keyring; sys_platform != "win32"

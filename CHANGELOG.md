@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0]
+
+- Several lamps: pick one at the top of the panel, or **All** to control every lamp at once.
+  Each lamp keeps its own connection, so one switched off at the wall doesn't stop the others.
+- Smart Life import: after signing in, choose which lamps from your account to add. Lume finds each
+  one on your network by itself.
+- Lume can stay signed in to Smart Life, so adding lamps later doesn't need the QR code again. The
+  sign-in is encrypted by the system (DPAPI on Windows, Keychain on macOS, Secret Service on Linux);
+  where there is no system keystore it isn't kept. **Sign out** forgets it.
+- The tray menu lists every lamp; click one to turn it on or off.
+- Settings lists the lamps to rename, remove or add by hand.
+- Support for Tuya bulbs that use the older data layouts (the tinytuya "A" and "C" types), including
+  white-only bulbs.
+- Settings from earlier versions are converted automatically.
+
 ## [1.1.3]
 
 - Linux: Lume adds itself to the app menu, with its icon, the first time it runs. GNOME now knows the

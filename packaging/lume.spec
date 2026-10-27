@@ -12,7 +12,9 @@ a = Analysis(
     [os.path.join(ROOT, "lume.pyw")],
     pathex=[ROOT],
     datas=[(os.path.join(ROOT, "ui"), "ui"), (os.path.join(ROOT, "assets"), "assets")],
-    hiddenimports=["PySide6.QtQuick", "PySide6.QtSvg", "tuya_sharing"],
+    hiddenimports=["PySide6.QtQuick", "PySide6.QtSvg", "tuya_sharing"]
+    # cofre do sistema (login do Smart Life): o keyring acha os backends por entry points
+    + ([] if sys.platform == "win32" else ["keyring.backends.macOS", "keyring.backends.SecretService"]),
     # o app nao usa nada disso; deixa o pacote bem menor
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick",
               "PySide6.Qt3DCore", "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtMultimedia",

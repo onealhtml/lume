@@ -14,6 +14,7 @@
 
 - Click the tray icon (the menu bar icon on macOS) to open the panel: brightness, white temperature,
   colour presets and a colour wheel
+- Several lamps: control one at a time or all of them together
 - Mouse wheel and keyboard arrows work on the sliders
 - Reconnects by itself when the lamp is switched off at the wall or gets a new IP
 - Stays out of the taskbar and the Dock
@@ -58,8 +59,13 @@ xattr -dr com.apple.quarantine /Applications/Lume.app
 ## Setup
 
 The first time, Lume opens its settings. Click **Smart Life login**, then in the Smart Life app go to
-Me › gear › Account and Security › User Code, paste the code, scan the QR code and click
-**Save and connect**. The lamp has to be paired in Smart Life (or Tuya Smart).
+Me › gear › Account and Security › User Code, paste the code and scan the QR code. Lume lists the
+lamps on your account: tick the ones you want and click **Add selected**. The lamps have to be paired
+in Smart Life (or Tuya Smart).
+
+Lume stays signed in, encrypted by the system's keystore (DPAPI on Windows, Keychain on macOS,
+Secret Service on Linux), so **Import lamps** adds new lamps later without the QR code. **Sign out**
+forgets the sign-in. Without a system keystore Lume doesn't keep it and asks for the QR code again.
 
 **Start with the system** adds Lume to the right place on each system (the registry on Windows,
 `~/.config/autostart` on Linux, a LaunchAgent on macOS).
@@ -98,7 +104,8 @@ python -m venv .venv
 | `ui/Main.qml` | the interface (Qt Quick) |
 | `core.py` | settings, start with the system and the connection to the lamp |
 | `i18n.py` | translations; the code is written in English |
-| `smartlife_qr.py` | Smart Life QR login to get the local key |
+| `smartlife_qr.py` | Smart Life QR login to get the lamps and their local keys |
+| `secure_store.py` | keeps the Smart Life sign-in encrypted by the system |
 | `platform_tweaks.py` | per-system tweaks (Windows glass, hiding from the macOS Dock) |
 | `icons.py` | draws the tray icon in the lamp's colour; `python icons.py` rebuilds `assets/` |
 

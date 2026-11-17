@@ -262,6 +262,7 @@ TIMEOUT = 2  # socket do caminho normal (o _open e a volta depois de cada quadro
 MUSIC_GAP_LIVE = 0.1
 MUSIC_GAP_COLOUR = 0.5
 MUSIC_KEEPALIVE = 8.0  # sem quadro por esse tempo: repete o ultimo (a lampada derruba conexao parada)
+MUSIC_FAILS = 3  # quadros seguidos com erro: a musica acaba nesta lampada
 
 
 class Lamp:
@@ -292,6 +293,8 @@ class Lamp:
         self._sent = 0.0           # time.monotonic() do ultimo quadro ou keepalive
         self._fresh = False        # o proximo quadro e o primeiro depois de entrar na musica
         self._t = 0                # T do quadro, alterna a cada entrada: a lampada ignora quadro repetido
+        self._music_fails = 0      # quadros seguidos que falharam (mesmo reconectando entre eles)
+        self._first = True         # a primeira conexao deste objeto (pode achar a lampada presa na musica)
         self._gen = 0              # cada connect() invalida as tentativas anteriores
         self._closed = False
         self._cv = threading.Condition()  # protege state, _pending e a musica; nunca segurado durante I/O
@@ -397,6 +400,7 @@ class Lamp:
 
     def _resume(self):
         """Com _cv, logo depois de (re)conectar."""
+        sc = self.scheme
         if self._music:
             # a lampada pode ter reiniciado: entra de novo e repete o ultimo quadro (com o T trocado)
             self.state.update(on=True, mode="music")
@@ -409,6 +413,18 @@ class Lamp:
             self._force.update(self._saved["dps"])
             self.state.update(self._saved["state"])
             self._cv.notify_all()
+        elif self._first and sc.mode and self._known.get(sc.mode) == "music":
+            # Lume saiu sem devolver a cor (fechou reconectando, travou, sem energia): a lampada gravou
+            # o modo musica e acende vermelha. So na primeira conexao: depois pode ser o app do celular.
+            # So o modo, nunca o DP de ligar: abrir o Lume nao acende lampada apagada
+            mode = "colour" if sc.colour else "white"
+            self._pending[sc.mode] = mode
+            self.state["mode"] = mode
+            hsv = sc.colour_hsv(self._known.get(sc.colour)) if mode == "colour" and self._known.get(sc.colour) else None
+            if hsv:
+                self.state["bright"] = hsv[2]
+            self._cv.notify_all()  # sem musica o worker espera sem prazo
+        self._first = False
 
     def refresh(self):
         if self._music:  # na musica a lampada so recebe quadros: sem consultar o status
@@ -596,6 +612,7 @@ class Lamp:
             self._music = {"dp": dp if live else sc.colour, "live": live, "mode": mode, "enter": enter,
                            "gap": MUSIC_GAP_LIVE if live else MUSIC_GAP_COLOUR}
             self._frame = self._last_frame = self._last_raw = None
+            self._music_fails = 0
             self._enter()
             self.state.update(on=True, mode="music", music=True)
             snapshot = dict(self.state)
@@ -721,11 +738,19 @@ class Lamp:
                 self._report(dev, r["dps"])
         r = replies[-1]
         if isinstance(r, dict) and "Error" in r:
-            self._lost(dev, r["Error"])
-        elif not quick:
             with self._cv:
                 if dev is self.dev:
-                    self._known[dp] = raw
+                    self._music_fails += 1
+                give_up = self._music_fails >= MUSIC_FAILS
+            if give_up:  # a lampada recusa os quadros mas responde ao status: sem isso reconecta sem parar
+                self.music_stop()
+            self._lost(dev, r["Error"])
+        else:
+            with self._cv:
+                if dev is self.dev:
+                    self._music_fails = 0
+                    if not quick:
+                        self._known[dp] = raw
 
     @staticmethod
     def _quick(dev, dp, raw, drain):

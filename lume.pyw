@@ -1,5 +1,6 @@
 """Lume: controle de lampada Tuya (Positivo, Smart Life, etc.) pela rede local.
 Vive na bandeja (Windows/Linux) ou na barra de menus (macOS): clique no icone abre o painel rapido."""
+import importlib.util
 import io
 import os
 import sys
@@ -19,11 +20,11 @@ import smartlife_qr
 from i18n import _
 from icons import tray_icon
 
-try:
-    import music  # numpy + soundcard: so no Windows e no Linux
-except ImportError:
-    music = None
-MUSIC_OK = music is not None and music.SUPPORTED  # macOS: sem botao, sem item no menu
+# numpy + soundcard: so no Windows e no Linux (macOS: sem botao, sem item no menu). Sem importar aqui: o numpy
+# so carrega quando a musica liga (o app da bandeja abre com o sistema), e em CPU sem x86-64-v2 ele levanta
+# RuntimeError no import, que derrubaria o app inteiro
+MUSIC_OK = ((sys.platform == "win32" or sys.platform.startswith("linux"))
+            and all(importlib.util.find_spec(m) for m in ("numpy", "soundcard")))
 
 APP_DIR = core.APP_DIR
 QML_PATH = os.path.join(APP_DIR, "ui", "Main.qml")
@@ -453,7 +454,11 @@ class App:
         ids = [c["id"] for c in self.cfg["lamps"]]
         for lid in list(self.lamps):
             if lid not in ids:
-                self.lamps.pop(lid).close()
+                lamp = self.lamps.pop(lid)
+                if lamp.music_active:  # o close() descarta a fila: sem isso a lampada fica no modo musica
+                    lamp.music_stop()
+                    lamp.wait_idle(0.5)
+                lamp.close()
                 self.lamp_states.pop(lid, None)
         for lid in ids:
             if lid not in self.lamps:
@@ -544,7 +549,11 @@ class App:
                 return True
             if name == "power" and args[0]:
                 return True
-            self.music_stop()  # desligar ou mudar o branco: sai da musica e faz o comando
+            # desligar ou mudar o branco: o comando primeiro, porque a lampada sai da musica no mesmo pacote.
+            # Parar o motor antes mandaria a cor de antes sozinha, e ela piscaria antes do comando
+            results = [getattr(lamp, name)(*args) for lamp in self.targets()]
+            self.music_stop()
+            return any(results)
         results = [getattr(lamp, name)(*args) for lamp in self.targets()]
         return any(results)
 
@@ -570,7 +579,11 @@ class App:
         self.music_base = (st.get("h", 30), st.get("s", 100))
         self.music_bright = st.get("bright", 100)
         if self.music is None:
-            self.music = music.MusicSync(self.backend._musicFrameIn.emit, self.backend._musicStatusIn.emit)
+            try:
+                import music  # numpy: so quando a musica liga
+                self.music = music.MusicSync(self.backend._musicFrameIn.emit, self.backend._musicStatusIn.emit)
+            except Exception as e:  # noqa: BLE001 - numpy que nao roda nesta CPU, soundcard quebrado...
+                return (_("Couldn't start music mode: %s") % e)[:160]
         m = self.cfg["music"]
         try:
             joined = self.music.start(lamps, m["style"], m["sensitivity"], *self.music_base, self.music_bright,
@@ -584,6 +597,7 @@ class App:
         self.music_had = {lamp.id for lamp in lamps if lamp.music_active}
         self.music_on = True
         self.music_status = ("starting", "")
+        self.save_later.start()  # grava a secao "music" no config.json (o README manda trocar o "dp" la)
         self.backend.musicChanged.emit()
         self.update_tray()
         return ""
@@ -631,7 +645,7 @@ class App:
         self.backend.musicChanged.emit()
         if status == "unavailable":
             self.music_stop()
-            self.notify((_("Couldn't listen to this computer's sound: %s") % detail)[:160])
+            self.notify((_("Couldn't listen to this computer's sound: %s") % _(detail))[:160])
 
     def set_music_option(self, key, value):
         """Estilo ou sensibilidade: vale na hora e fica guardado."""

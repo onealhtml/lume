@@ -408,6 +408,7 @@ Window {
                     Row {
                         width: parent.width
                         height: parent.height - 40 - 70 - 24 - (chips.visible ? 42 : 0)
+                        enabled: !musicOpen  // atras da folha da musica: Tab e setas nao chegam nos controles escondidos
                         spacing: 12
 
                         // brilho: pilula vertical
@@ -651,7 +652,7 @@ Window {
                 }
                 Behavior on y { NumberAnimation { duration: 340; easing.type: Easing.OutBack; easing.overshoot: 0.7 } }
                 Behavior on opacity { NumberAnimation { duration: 200 } }
-                MouseArea { anchors.fill: parent }  // clique na folha nao chega no que esta embaixo dela
+                MouseArea { anchors.fill: parent; onWheel: w => w.accepted = true }  // clique e rodinha nao passam da folha
                 Item {
                     x: 16; y: 14; width: parent.width - 32; height: 30
                     Txt { anchors.verticalCenter: parent.verticalCenter; text: tr("Colour"); font.family: displayFont; font.pixelSize: 17; font.weight: Font.DemiBold }
@@ -688,6 +689,7 @@ Window {
             Glass {
                 id: musicSheet
                 x: 10; width: parent.width - 20; height: 346
+                enabled: musicOpen  // fechada fica so fora da tela: sem isso o Tab chegaria na sensibilidade invisivel
                 y: musicOpen ? parent.height - height - 10 : parent.height + 20
                 opacity: musicOpen ? 1 : 0
                 radius: 24
@@ -698,7 +700,7 @@ Window {
                 }
                 Behavior on y { NumberAnimation { duration: 340; easing.type: Easing.OutBack; easing.overshoot: 0.7 } }
                 Behavior on opacity { NumberAnimation { duration: 200 } }
-                MouseArea { anchors.fill: parent }
+                MouseArea { anchors.fill: parent; onWheel: w => w.accepted = true }
                 Item {
                     x: 16; y: 14; width: parent.width - 32; height: 30
                     Txt { anchors.verticalCenter: parent.verticalCenter; text: tr("Music"); font.family: displayFont; font.pixelSize: 17; font.weight: Font.DemiBold }
@@ -715,7 +717,7 @@ Window {
                         border.color: hair
                         Column {
                             x: 14; anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width - 14 - musicSwitch.width - 24
+                            width: parent.width - 14 - musicSwitch.width - 20
                             spacing: 3
                             Txt { width: parent.width; elide: Text.ElideRight; text: tr("Sync with music"); font.weight: Font.DemiBold }
                             Txt { width: parent.width; elide: Text.ElideRight; text: musicStatusText(); color: ink2; font.pixelSize: 12 }

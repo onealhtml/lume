@@ -1,12 +1,17 @@
 """Modo musica: analisa o audio que o PC esta tocando e transforma em cor e brilho para as lampadas.
 So numpy; o audio vem do loopback.py. Sem Qt: MusicSync avisa por callbacks chamados das suas threads."""
 import math
+import os
 import random
 import sys
 import threading
 import time
 
-import numpy as np
+# o analisador nao usa BLAS (rfft e o pocketfft, o dot e de 1024 amostras): sem isso o OpenBLAS do numpy
+# abre uma thread por nucleo no app da bandeja, paradas ate ele fechar
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+import numpy as np  # noqa: E402  depois do OPENBLAS_NUM_THREADS
 
 import loopback
 

@@ -57,11 +57,31 @@ def _pulse_alive(sc):
     if _pulse_ready(sc):
         return True
     scp = sc.pulseaudio
+    # em duas etapas: o __init__ liga a thread do mainloop antes do assert, e com o servidor fora ela
+    # ficaria rodando (uma por tentativa, a cada 5 s)
+    pa = scp._PulseAudio.__new__(scp._PulseAudio)
     try:
-        scp._pulse = scp._PulseAudio()  # as funcoes do modulo leem o global a cada chamada
+        pa.__init__()
+        # com python -O o assert do soundcard nao roda: confere aqui que o contexto ficou pronto
+        ok = pa._pa_context_get_state(pa.context) == scp._pa.PA_CONTEXT_READY
     except Exception:  # noqa: BLE001  servidor ainda fora (AssertionError)
+        ok = False
+    if not ok:
+        ml = getattr(pa, "mainloop", None)
+        if ml is not None:
+            scp._pa.pa_threaded_mainloop_stop(ml)
+            ctx = getattr(pa, "context", None)
+            if ctx is not None:
+                scp._pa.pa_context_disconnect(ctx)
+                scp._pa.pa_context_unref(ctx)
+            scp._pa.pa_threaded_mainloop_free(ml)
         return False
-    atexit.register(scp._pulse._shutdown)
+    scp._pulse = pa  # as funcoes do modulo leem o global a cada chamada
+    atexit.register(pa._shutdown)
+    try:
+        sc.set_name("Lume")  # o contexto novo nasce com o nome do script
+    except Exception:  # noqa: BLE001
+        pass
     return True
 
 
@@ -114,8 +134,13 @@ class LoopbackCapture:
             mic = sc.get_microphone(self._source, include_loopback=True)
             return self._source, _name(mic, self._source), mic
         spk = sc.default_speaker()
-        # WASAPI: o loopback tem o mesmo id da saida; Pulse/PipeWire: a fonte "<saida>.monitor"
-        mic = sc.get_microphone(spk.id if IS_WINDOWS else spk.id + ".monitor", include_loopback=True)
+        # Windows: loopback montado direto da saida padrao; get_microphone le o nome de TODOS os dispositivos
+        # e um com propriedade quebrada derruba a busca (API interna, soundcard==0.4.6 fixo)
+        # Pulse/PipeWire: a fonte "<saida>.monitor"
+        if IS_WINDOWS:
+            mic = sc.mediafoundation._Microphone(spk, isloopback=True)
+        else:
+            mic = sc.get_microphone(spk.id + ".monitor", include_loopback=True)
         return spk.id, _name(spk, spk.id), mic
 
     def _current_id(self, sc):
@@ -138,7 +163,10 @@ class LoopbackCapture:
             return
         if IS_LINUX:
             try:
-                sc.set_name("Lume")  # nome que aparece no controle de volume do sistema
+                # so com o contexto vivo: se o servidor reiniciou com a musica desligada, o set_name no
+                # contexto morto faz o libpulse abortar o processo inteiro (nao vira excecao)
+                if _pulse_alive(sc):
+                    sc.set_name("Lume")  # nome que aparece no controle de volume do sistema
             except Exception:  # noqa: BLE001
                 pass
         warnings.filterwarnings("ignore", message="data discontinuity")  # aviso do soundcard no Windows
@@ -154,13 +182,17 @@ class LoopbackCapture:
                     self._halt.wait(backoff)
                     backoff = min(backoff * 2, 5.0)
                     continue
-                backoff = 0.5
+                t0 = time.monotonic()
                 try:
                     reason = self._pump(sc, dev_id, name, mic)
                 except Exception as e:  # noqa: BLE001  Windows 0x88890004 / 0x8889000A; Linux FAILED, TypeError
+                    if time.monotonic() - t0 > 5.0:  # rodou um tempo: falha nova, tenta logo
+                        backoff = 0.5
                     self._state("error", _why(e))
-                    self._halt.wait(0.5)
+                    self._halt.wait(backoff)  # falha que se repete (dispositivo exclusivo) nao gira 2x por segundo
+                    backoff = min(backoff * 2, 5.0)
                     continue
+                backoff = 0.5
                 if not self._halt.is_set():
                     self._state("reopen", reason)
         finally:
@@ -173,7 +205,16 @@ class LoopbackCapture:
         # Linux: blocksize vira o fragsize do Pulse, ou seja a latencia (sem ele ~1.9 s de atraso)
         # Windows: blocksize e a capacidade do buffer WASAPI; folga de 100 ms evita "data discontinuity"
         rec = mic.recorder(samplerate=sr, channels=2, blocksize=sr // 10 if IS_WINDOWS else n)
-        rec.__enter__()
+        try:
+            rec.__enter__()
+        except Exception:
+            # Linux: stream FAILED fica alocado; com stream NULL o pa_stream_disconnect aborta o processo
+            if IS_LINUX and getattr(rec, "stream", None):  # ponteiro NULL do cffi e falso
+                try:
+                    rec.__exit__(None, None, None)
+                except Exception:  # noqa: BLE001
+                    pass
+            raise
         try:
             self._state("running", name)
             next_poll, last = time.monotonic() + POLL_DEFAULT_S, None  # 1o bloco pode demorar (saida acordando)

@@ -5,3 +5,8 @@ qrcode[pil]
 tuya-device-sharing-sdk
 # cofre do sistema para o login do Smart Life (no Windows o Lume usa o DPAPI direto)
 keyring; sys_platform != "win32"
+# modo musica: captura o som que o PC esta tocando (loopback). O macOS nao tem, la o modo nem aparece
+# fixo na 0.4.6: o loopback.py usa partes internas do soundcard
+soundcard==0.4.6; sys_platform == "win32" or sys_platform == "linux"
+# sem minimo para o Python 3.10 instalar; no 3.15 (CI) so a 2.5.2+ tem wheel, e o pip ja escolhe ela
+numpy; sys_platform == "win32" or sys_platform == "linux"

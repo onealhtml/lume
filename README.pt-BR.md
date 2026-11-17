@@ -15,6 +15,7 @@
 - Clique no ícone da bandeja (na barra de menus, no macOS) para abrir o painel: brilho, temperatura do
   branco, cores prontas e roda de cores
 - Várias lâmpadas: controle uma de cada vez ou todas juntas
+- Modo música (Windows e Linux): as lâmpadas acompanham o que estiver tocando no PC
 - Rodinha do mouse e setas do teclado funcionam nos controles
 - Reconecta sozinho se a lâmpada for desligada no interruptor ou mudar de IP
 - Não ocupa a barra de tarefas nem o Dock
@@ -87,6 +88,36 @@ sem o QR. **Sair** esquece o login. Sem cofre no sistema o Lume não guarda e pe
   Saia e entre de novo na sessão, rode `gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com`
   e abra o Lume outra vez.
 - **macOS:** o ícone fica na barra de menus; "Fechar o Lume" fica nas configurações.
+
+## Modo música
+
+No Windows e no Linux (no macOS não), o botão de música ao lado da engrenagem, ou **Música** no menu
+da bandeja, faz as lâmpadas acompanharem o que estiver tocando no PC: Spotify, um vídeo, um jogo. O
+Lume só escuta o que vai para as caixas de som ou o fone, nunca o microfone, e o som não sai do seu
+computador. Ligue **Sincronizar com a música** e escolha um estilo:
+
+- **Pulso:** a sua cor, piscando mais forte na batida
+- **Fluxo:** as cores passeiam em volta da sua, mais rápido quando a música fica mais alta
+- **Festa:** uma cor nova a cada batida
+
+A **Sensibilidade** define com que facilidade as luzes reagem: aumente se elas quase não se mexem,
+diminua se pulam com qualquer coisa. Com o modo música ligado, as cores prontas e a roda escolhem a cor
+principal e a barra de brilho define o máximo; apagar a lâmpada ou escolher um branco desliga o modo
+música. Em **Todas**, as lâmpadas participam juntas.
+
+Lâmpadas só de branco não acompanham música, e as que usam o formato de dados antigo (tipo A do
+tinytuya) acompanham mais devagar.
+
+- **Linux:** precisa do PulseAudio, ou do PipeWire com o `pipewire-pulse` (o padrão no Fedora, no Ubuntu
+  e na maioria dos ambientes).
+- **Caixas de som e fones Bluetooth** atrasam o som, então as luzes ficam um pouco adiantadas.
+- **A lâmpada fica vermelha e ignora a música:** algumas lâmpadas recebem a música em outro ponto de
+  dados. Feche o Lume, abra o `config.json` (em `%APPDATA%\Lume` no Windows, `~/.config/lume` no
+  Linux), troque `"dp"` para `"28"` na seção `"music"` e abra o Lume de novo:
+
+  ```
+  "music": {"style": "party", "sensitivity": 50, "dp": "28"}
+  ```
 
 ## Rodar pelo código
 

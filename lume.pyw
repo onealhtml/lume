@@ -7,7 +7,7 @@ import threading
 import time
 
 import tinytuya
-from PySide6.QtCore import QLocale, QObject, QPoint, QRect, Property, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QLocale, QObject, QPoint, QRect, Property, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QCursor, QFont, QFontDatabase, QGuiApplication, QIcon, QPixmap
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
@@ -18,6 +18,12 @@ import platform_tweaks
 import smartlife_qr
 from i18n import _
 from icons import tray_icon
+
+try:
+    import music  # numpy + soundcard: so no Windows e no Linux
+except ImportError:
+    music = None
+MUSIC_OK = music is not None and music.SUPPORTED  # macOS: sem botao, sem item no menu
 
 APP_DIR = core.APP_DIR
 QML_PATH = os.path.join(APP_DIR, "ui", "Main.qml")
@@ -54,14 +60,22 @@ class Backend(QObject):
     smartlifeResult = Signal("QVariantMap")  # {pending} | {devices, remembered} | {expired} | {error}
     importFinished = Signal("QVariantMap")
     smartlifeChanged = Signal()
+    musicChanged = Signal()
+    musicFrame = Signal("QVariantMap")  # quadro ao vivo do motor: cor, nivel, bandas
+    notice = Signal(str)                # aviso vindo do Python (o painel mostra embaixo)
     _incoming = Signal("QVariantMap")  # estado de uma lampada vindo de outra thread
     _scanned = Signal("QVariantList", "QVariantMap")  # busca da importacao pronta (volta para a interface)
+    _musicFrameIn = Signal("QVariantMap")  # do motor da musica (outra thread) para a interface
+    _musicStatusIn = Signal(str, str)
 
     def __init__(self, app):
         super().__init__()
         self._app = app
         self._incoming.connect(self._lamp_state)
         self._scanned.connect(self._finish_import)
+        # sempre pela fila: o motor pode avisar de dentro do proprio start(), ja na thread da interface
+        self._musicFrameIn.connect(self._music_frame, Qt.ConnectionType.QueuedConnection)
+        self._musicStatusIn.connect(self._music_status, Qt.ConnectionType.QueuedConnection)
         # ler o login guardado decifra um arquivo (ou fala com o chaveiro no Linux): so uma vez,
         # e depois a cada entrar/sair/expirar; nunca a cada atualizacao das lampadas
         self._signed_in = smartlife_qr.signed_in()
@@ -70,10 +84,18 @@ class Backend(QObject):
     def _lamp_state(self, st):
         if st["id"] not in self._app.lamps:  # aviso atrasado de uma lampada ja removida
             return
+        prev = self._app.lamp_states.get(st["id"], {})
         self._app.lamp_states[st["id"]] = st
         self.stateChanged.emit()
         self.lampsChanged.emit()
         self._app.update_tray()
+        if prev.get("music") and not st.get("music"):
+            # saiu da musica sozinha (app do celular, menu da bandeja): depois do que estiver em curso
+            # (troca de lampadas da musica) confere se sobrou alguma
+            QTimer.singleShot(0, self._app.music_check)
+        elif st.get("connected") and not prev.get("connected") and not st.get("music"):
+            # conectou com a musica ja ligada (modo Todas, lampada nova): entra tambem
+            QTimer.singleShot(0, lambda lid=st["id"]: self._app.music_join(lid))
 
     @Property("QVariantMap", notify=stateChanged)
     def state(self):
@@ -133,6 +155,41 @@ class Backend(QObject):
     @Property(str, constant=True)
     def wheelUrl(self):
         return QUrl.fromLocalFile(os.path.join(APP_DIR, "assets", "wheel.png")).toString()
+
+    # ----- modo musica -----
+    @Property(bool, constant=True)
+    def musicSupported(self):
+        return MUSIC_OK
+
+    @Property("QVariantMap", notify=musicChanged)
+    def music(self):
+        return self._app.music_view()
+
+    @Slot(result=str)
+    def musicStart(self):
+        """Liga; devolve "" ou o aviso para mostrar no painel."""
+        return self._app.music_start()
+
+    @Slot()
+    def musicStop(self):
+        self._app.music_stop()
+
+    @Slot(str)
+    def setMusicStyle(self, style):
+        self._app.set_music_option("style", style)
+
+    @Slot(int)
+    def setMusicSensitivity(self, value):
+        self._app.set_music_option("sensitivity", value)
+
+    @Slot("QVariantMap")
+    def _music_frame(self, frame):
+        if self._app.music_on and self._app.visible:  # painel fechado: nada para desenhar
+            self.musicFrame.emit(frame)
+
+    @Slot(str, str)
+    def _music_status(self, status, detail):
+        self._app.on_music_status(status, detail)
 
     # ----- comandos (na lampada escolhida ou em todas): False = nenhuma conectada -----
     @Slot(bool, result=bool)
@@ -285,6 +342,17 @@ class App:
         self.system_glass = False
         self.tray_rgb = "unset"
         self.menu_lamps = None
+        self.music = None            # music.MusicSync, criado no primeiro uso
+        self.music_on = False
+        self.music_status = ("stopped", "")
+        self.music_base = (30, 100)  # cor (h, s) e brilho maximo do efeito: o painel escolhe durante a musica
+        self.music_bright = 100
+        self.music_had = set()       # ids que ja entraram nesta musica: a que saiu nao volta sozinha ao reconectar
+        # arrastar a sensibilidade nao grava o arquivo a cada passo
+        self.save_later = QTimer()
+        self.save_later.setSingleShot(True)
+        self.save_later.setInterval(600)
+        self.save_later.timeout.connect(self.save)
 
         # sem area de bandeja (GNOME sem a extensao AppIndicator, WSL...): vira janela comum
         self.has_tray = QSystemTrayIcon.isSystemTrayAvailable()
@@ -325,6 +393,13 @@ class App:
         """Abrir; uma linha por lampada (marcada = acesa, clique liga/desliga); Fechar."""
         self.menu.clear()
         self.menu.addAction(_("Open"), self.toggle_panel)
+        if MUSIC_OK:
+            act = self.menu.addAction(_("Music"))
+            act.setCheckable(True)
+            act.setChecked(self.music_on)
+            act.setEnabled(self.music_on or any(self.lamp_states.get(lamp.id, {}).get("connected")
+                                                for lamp in self.targets()))
+            act.triggered.connect(self._menu_music)
         self.menu.addSeparator()
         for c in self.cfg["lamps"]:
             st = self.lamp_states.get(c["id"], {})
@@ -336,8 +411,24 @@ class App:
         self.menu.addSeparator()
         self.menu.addAction(_("Quit Lume"), self.quit)
 
+    def _menu_music(self, on):
+        if not on:
+            self.music_stop()
+            return
+        msg = self.music_start()
+        if msg:
+            self.notify(msg)
+
+    def notify(self, msg):
+        """Aviso para o usuario: embaixo do painel se ele esta aberto, senao pela bandeja."""
+        if self.visible or not self.tray:
+            self.backend.notice.emit(msg)
+        else:
+            self.tray.showMessage("Lume", msg, QSystemTrayIcon.MessageIcon.Information, 5000)
+
     def run(self):
         rc = self.qapp.exec()
+        self.release()  # saiu sem passar pelo quit() (fim da sessao): a musica devolve a cor mesmo assim
         # destroi o QML antes do backend, senao as ligacoes leem um `backend` ja apagado ao sair
         import shiboken6
         shiboken6.delete(self.engine)
@@ -373,6 +464,7 @@ class App:
         self.backend.lampsChanged.emit()
         self.backend.stateChanged.emit()
         self.update_tray()
+        self.music_follow()
 
     def set_lamps(self, lamps):
         """Lista editada nas configuracoes."""
@@ -429,6 +521,7 @@ class App:
         self.backend.lampsChanged.emit()
         self.backend.stateChanged.emit()
         self.update_tray()
+        self.music_follow()
 
     def targets(self):
         sel = self.selected()
@@ -437,8 +530,124 @@ class App:
         return [self.lamps[sel]] if sel in self.lamps else []
 
     def command(self, name, *args):
+        if self.music_on:
+            # durante a musica a cor e o brilho escolhidos no painel viram a base do efeito
+            if name in ("colour", "brightness"):
+                if name == "colour":
+                    self.music_base = (int(args[0]) % 360, max(0, min(100, int(args[1]))))
+                    self.music.set_base(*self.music_base)
+                else:
+                    self.music_bright = max(1, min(100, int(args[0])))
+                    self.music.set_max_bright(self.music_bright)
+                self.backend.musicChanged.emit()
+                self.update_tray()
+                return True
+            if name == "power" and args[0]:
+                return True
+            self.music_stop()  # desligar ou mudar o branco: sai da musica e faz o comando
         results = [getattr(lamp, name)(*args) for lamp in self.targets()]
         return any(results)
+
+    # ----- modo musica -----
+    def music_view(self):
+        m = self.cfg["music"]
+        return {"active": self.music_on, "style": m["style"], "sensitivity": m["sensitivity"],
+                "status": self.music_status[0], "detail": self.music_status[1],
+                "h": self.music_base[0], "s": self.music_base[1], "bright": self.music_bright}
+
+    def music_start(self):
+        """Liga a musica nas lampadas do painel. "" se ligou; senao o aviso para o usuario."""
+        if not MUSIC_OK:
+            return _("Music mode isn't available on this system")
+        if self.music_on:
+            return ""
+        lamps = self.targets()
+        why = self._music_blocker(lamps)
+        if why:
+            return why
+        # comeca na cor e no brilho que a lampada ja tem
+        st = self.view_state()
+        self.music_base = (st.get("h", 30), st.get("s", 100))
+        self.music_bright = st.get("bright", 100)
+        if self.music is None:
+            self.music = music.MusicSync(self.backend._musicFrameIn.emit, self.backend._musicStatusIn.emit)
+        m = self.cfg["music"]
+        try:
+            joined = self.music.start(lamps, m["style"], m["sensitivity"], *self.music_base, self.music_bright,
+                                      m["dp"])
+        except Exception as e:  # noqa: BLE001 - erro do motor nao derruba o painel
+            for lamp in lamps:
+                lamp.music_stop()
+            return (_("Couldn't start music mode: %s") % e)[:160]
+        if not joined:
+            return _("The lamp is not connected")
+        self.music_had = {lamp.id for lamp in lamps if lamp.music_active}
+        self.music_on = True
+        self.music_status = ("starting", "")
+        self.backend.musicChanged.emit()
+        self.update_tray()
+        return ""
+
+    def music_stop(self):
+        if not self.music_on:
+            return
+        self.music_on = False  # antes de parar: os avisos das lampadas voltando nao chamam de novo
+        self.music.stop()
+        self.music_status = ("stopped", "")
+        self.backend.musicChanged.emit()
+        self.update_tray()
+
+    def _music_blocker(self, lamps):
+        """Por que estas lampadas nao entram na musica; "" se alguma pode."""
+        if not any(self.lamp_states.get(lamp.id, {}).get("connected") for lamp in lamps):
+            return _("The lamp is not connected") if lamps else _("Set up the lamp first")
+        if not any(lamp.music_capable() for lamp in lamps):
+            return _("Music mode needs a colour lamp")
+        return ""
+
+    def music_follow(self):
+        """Selecao ou lista de lampadas mudou: a musica passa para as lampadas do painel."""
+        if self.music_on and not self.music.set_lamps(self.targets()):
+            self.music_stop()
+            self.notify(self._music_blocker(self.targets()) or _("The lamp is not connected"))
+        self.music_had.update(lamp.id for lamp in self.targets() if lamp.music_active)
+
+    def music_check(self):
+        if self.music_on and not any(lamp.music_active for lamp in self.targets()):
+            self.music_stop()
+
+    def music_join(self, lamp_id):
+        """Lampada do painel que conectou depois de a musica comecar (estava fora da rede, ou e nova)."""
+        lamp = self.lamps.get(lamp_id)
+        targets = self.targets()
+        if self.music_on and lamp in targets and lamp_id not in self.music_had and lamp.music_capable():
+            self.music_had.add(lamp_id)
+            self.music.set_lamps([t for t in targets if t.music_active] + [lamp])
+
+    def on_music_status(self, status, detail):
+        if not self.music_on or status == "stopped":  # aviso atrasado de um motor ja parado
+            return
+        self.music_status = (status, detail)
+        self.backend.musicChanged.emit()
+        if status == "unavailable":
+            self.music_stop()
+            self.notify((_("Couldn't listen to this computer's sound: %s") % detail)[:160])
+
+    def set_music_option(self, key, value):
+        """Estilo ou sensibilidade: vale na hora e fica guardado."""
+        m = self.cfg["music"]
+        if key == "style":
+            if value not in core.MUSIC_STYLES:
+                return
+            m["style"] = value
+            if self.music_on:
+                self.music.set_style(value)
+        else:
+            m["sensitivity"] = max(0, min(100, int(value)))
+            if self.music_on:
+                self.music.set_sensitivity(m["sensitivity"])
+        self.save_later.start()
+        self.backend.musicChanged.emit()
 
     def view_state(self):
         """O que o painel mostra: a lampada escolhida, ou em "Todas" uma de referencia (cor, brilho)
@@ -456,7 +665,8 @@ class App:
         view.update(connected=bool(live), on=any(s.get("on") for s in live), count=len(states),
                     countOn=sum(1 for s in live if s.get("on")), countLive=len(live),
                     colour=any(s.get("colour", True) for s in live) if live else True,
-                    white=any(s.get("white", True) for s in live) if live else True)
+                    white=any(s.get("white", True) for s in live) if live else True,
+                    music=any(s.get("music") for s in live))
         return view
 
     # ----- estado -----
@@ -470,14 +680,19 @@ class App:
         st = self.view_state()
         rgb = None
         if st.get("connected") and st.get("on"):
-            rgb = core.hsv_rgb(st["h"], st["s"]) if st.get("mode") == "colour" else core.kelvin_rgb(st.get("temp", 50))
+            if self.music_on:  # cor fixa durante a musica: redesenhar o icone a cada batida e caro
+                rgb = core.hsv_rgb(*self.music_base)
+            elif st.get("mode") == "colour":
+                rgb = core.hsv_rgb(st["h"], st["s"])
+            else:
+                rgb = core.kelvin_rgb(st.get("temp", 50))
         if rgb != self.tray_rgb:  # recriar o icone a cada arrasto do slider e caro
             self.tray_rgb = rgb
             self.tray.setIcon(pil_to_icon(tray_icon(rgb)))
         lines = []
         for c in self.cfg["lamps"]:
             s = self.lamp_states.get(c["id"], {})
-            status = s.get("status") or (_("on") if s.get("on") else _("off"))
+            status = s.get("status") or (_("music") if s.get("music") else _("on") if s.get("on") else _("off"))
             lines.append(f"{self.lamp_name(c)}: {status}")
         self.tray.setToolTip(("Lume\n" + "\n".join(lines))[:127])
 
@@ -563,7 +778,20 @@ class App:
     def quit(self):
         if self.tray:
             self.tray.hide()
+        self.window.hide()
+        self.release()
         self.qapp.quit()
+
+    def release(self):
+        """Antes de sair: grava o que falta e tira as lampadas da musica, esperando os comandos que
+        devolvem a cor de antes chegarem nelas."""
+        if self.save_later.isActive():
+            self.save_later.stop()
+            self.save()
+        self.music_stop()
+        deadline = time.monotonic() + 1.5
+        for lamp in list(self.lamps.values()):
+            lamp.wait_idle(max(0.0, deadline - time.monotonic()))
 
 
 if __name__ == "__main__":

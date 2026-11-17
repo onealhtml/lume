@@ -15,7 +15,10 @@ from i18n import _
 FROZEN = getattr(sys, "frozen", False)  # rodando do executavel gerado pelo PyInstaller
 # arquivos do app (ui/, assets/): no executavel ficam na pasta temporaria/interna do PyInstaller
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_CONFIG = {"lamps": [], "selected": "", "glass": "acrylic"}  # vidro no Windows: "acrylic" ou "blur"
+MUSIC_STYLES = ("pulse", "flow", "party")
+MUSIC_DEFAULTS = {"style": "party", "sensitivity": 50, "dp": "27"}  # dp: "28" se a lampada ignora o 27
+# vidro no Windows: "acrylic" ou "blur"
+DEFAULT_CONFIG = {"lamps": [], "selected": "", "glass": "acrylic", "music": dict(MUSIC_DEFAULTS)}
 LAMP_DEFAULTS = {"id": "", "key": "", "name": "", "ip": "Auto", "last_ip": "", "version": "3.5"}
 ALL = "all"  # "selected" quando o painel controla todas as lampadas juntas
 
@@ -53,6 +56,14 @@ def load_config():
                     for lamp in lamps if isinstance(lamp, dict) and lamp.get("id")]
     for k in ("selected", "glass"):
         cfg[k] = str(cfg[k]) if cfg[k] is not None else DEFAULT_CONFIG[k]
+    # sempre um dict novo: o padrao nao pode ser alterado por quem mexe em cfg["music"]
+    m = cfg["music"] if isinstance(cfg["music"], dict) else {}
+    try:
+        sens = max(0, min(100, int(m.get("sensitivity", MUSIC_DEFAULTS["sensitivity"]))))
+    except (TypeError, ValueError, OverflowError):
+        sens = MUSIC_DEFAULTS["sensitivity"]
+    cfg["music"] = dict(m, style=m.get("style") if m.get("style") in MUSIC_STYLES else MUSIC_DEFAULTS["style"],
+                        sensitivity=sens, dp=str(m.get("dp")) if str(m.get("dp")) in ("27", "28") else "27")
     return cfg
 
 
@@ -174,6 +185,17 @@ def hsv_rgb(h, s):
     return tuple(round(x * 255) for x in colorsys.hsv_to_rgb(h / 360, s / 100, 1))
 
 
+def music_raw(h, s, v, jump=True, temp=0):
+    """Quadro de tempo real dos DPs 27/28 (tipo B), 21 caracteres: M HHHH SSSS VVVV BBBB TTTT.
+    M 0 = salto, 1 = gradiente; h 0-359, s e v 0-100 viram 0-1000. B (branco) fica 0: acima disso
+    os LEDs brancos das lampadas RGBCW acendem junto. T so serve para o quadro nao repetir o anterior."""
+    s = max(0, min(1000, int(round(s * 10))))
+    v = max(0, min(1000, int(round(v * 10))))
+    if 0 < v < 10:  # de 1 a 9 a lampada apaga; 10 e o minimo do produto
+        v = 10
+    return f"{0 if jump else 1}{int(round(h)) % 360:04x}{s:04x}{v:04x}{0:04x}{temp:04x}"
+
+
 class Scheme:
     """Onde cada lampada guarda cada coisa. Modelos Tuya usam tres arranjos de DPs (os tipos A, B e C
     da tinytuya); o tipo e descoberto pelo status na primeira conexao."""
@@ -234,9 +256,18 @@ SCHEMES = {
 }
 
 
+TIMEOUT = 2  # socket do caminho normal (o _open e a volta depois de cada quadro de musica)
+# musica: intervalo minimo entre quadros por lampada. Tipo B (DP 27/28, tempo real): mais rapido que
+# 0,1 s a lampada se perde. Tipo A (so o DP de cor): cada escrita faz fade, relatorio e talvez gravacao
+MUSIC_GAP_LIVE = 0.1
+MUSIC_GAP_COLOUR = 0.5
+MUSIC_KEEPALIVE = 8.0  # sem quadro por esse tempo: repete o ultimo (a lampada derruba conexao parada)
+
+
 class Lamp:
     """Conexao com uma lampada. Comandos sao agrupados: so o ultimo valor de cada DP e enviado.
-    Se a lampada some (interruptor, Wi-Fi, IP novo), reconecta sozinha em segundo plano."""
+    Se a lampada some (interruptor, Wi-Fi, IP novo), reconecta sozinha em segundo plano.
+    No modo musica o worker manda so o quadro mais recente, no ritmo que a lampada aguenta."""
 
     def __init__(self, get_cfg, on_change, save):
         self.get_cfg = get_cfg  # sempre le a config atual desta lampada, nunca uma copia antiga
@@ -246,13 +277,24 @@ class Lamp:
         self.dev = None
         self.scheme = SCHEMES["B"]
         self.state = {"id": self.id, "connected": False, "on": False, "mode": "white", "bright": 100,
-                      "temp": 50, "h": 30, "s": 100, "colour": True, "white": True, "status": _("Disconnected")}
+                      "temp": 50, "h": 30, "s": 100, "colour": True, "white": True, "music": False,
+                      "status": _("Disconnected")}
         self._pending = {}
+        self._force = set()  # DPs que vao mesmo iguais ao _known (a restauracao depois da musica)
         self._last_send = 0.0
         self._known = {}  # ultimo valor de cada DP que a lampada confirmou (para so mandar o que mudou)
+        self._busy = False         # o worker esta conversando com a lampada (wait_idle)
+        self._music = None         # sessao de musica: dp, live (DP 27/28 de tempo real), mode, gap, enter
+        self._saved = None         # como sair da musica (DPs e estado de antes); fica ate a lampada confirmar
+        self._frame = None         # quadro (h, s, v, jump) ainda nao mandado: so o mais recente importa
+        self._last_frame = None    # ultimo quadro mandado, e a string dele (keepalive)
+        self._last_raw = None
+        self._sent = 0.0           # time.monotonic() do ultimo quadro ou keepalive
+        self._fresh = False        # o proximo quadro e o primeiro depois de entrar na musica
+        self._t = 0                # T do quadro, alterna a cada entrada: a lampada ignora quadro repetido
         self._gen = 0              # cada connect() invalida as tentativas anteriores
         self._closed = False
-        self._cv = threading.Condition()  # protege state + _pending
+        self._cv = threading.Condition()  # protege state, _pending e a musica; nunca segurado durante I/O
         self._io = threading.Lock()       # uma conversa com a lampada por vez
         threading.Thread(target=self._worker, daemon=True).start()
 
@@ -277,8 +319,10 @@ class Lamp:
             self._gen += 1
             self._closed = True
             dev, self.dev = self.dev, None
-            self._pending = {}
-            self._cv.notify()
+            self._pending, self._force = {}, set()
+            self._music = self._frame = self._saved = None
+            self.state["music"] = False
+            self._cv.notify_all()
         if dev:
             try:
                 dev.close()
@@ -319,15 +363,15 @@ class Lamp:
                 self.scheme = Scheme.detect(st["dps"])
                 self.state["colour"] = self.scheme.colour is not None
                 self.state["white"] = self.scheme.temp is not None
+                self._known = {}
+                self._parse(st["dps"])
+                self._resume()
         if stale:  # outra tentativa (ou close) passou na frente: solta este socket
             try:
                 stale.close()
             except Exception:  # noqa: BLE001
                 pass
             return None
-        with self._cv:
-            self._known = {}
-            self._parse(st["dps"])
         if cfg["ip"] in ("", "Auto") and cfg.get("last_ip") != dev.address:
             cfg["last_ip"] = dev.address
             self.save()
@@ -337,7 +381,7 @@ class Lamp:
     def _open(self, cfg, ip):
         dev = tinytuya.BulbDevice(cfg["id"], ip, cfg["key"], version=float(cfg["version"]))
         dev.set_socketPersistent(True)
-        dev.set_socketTimeout(2)
+        dev.set_socketTimeout(TIMEOUT)
         dev.set_socketRetryLimit(1)
         dev.set_socketRetryDelay(0.5)
         with self._io:
@@ -351,7 +395,24 @@ class Lamp:
         self._update(connected=False, status=(_("Connection lost (%s). Reconnecting…") % err)[:120])
         self.connect()
 
+    def _resume(self):
+        """Com _cv, logo depois de (re)conectar."""
+        if self._music:
+            # a lampada pode ter reiniciado: entra de novo e repete o ultimo quadro (com o T trocado)
+            self.state.update(on=True, mode="music")
+            if self._frame is None:
+                self._frame = self._last_frame
+            self._enter()
+        elif self._saved:
+            # a saida da musica nao chegou na lampada (a conexao caiu antes): manda de novo
+            self._pending.update(self._saved["dps"])
+            self._force.update(self._saved["dps"])
+            self.state.update(self._saved["state"])
+            self._cv.notify_all()
+
     def refresh(self):
+        if self._music:  # na musica a lampada so recebe quadros: sem consultar o status
+            return
         dev = self.dev
         if not dev:
             if not self.state["connected"] and not self._closed:
@@ -367,7 +428,7 @@ class Lamp:
             return
         with self._cv:
             # nao sobrescreve o que o usuario acabou de mudar e ainda nao chegou na lampada
-            if self._pending or time.time() - self._last_send < 1.5:
+            if self._music or self._pending or time.time() - self._last_send < 1.5:
                 return
             self._parse(st["dps"])
         self._update()
@@ -400,13 +461,20 @@ class Lamp:
 
     # ----- comandos -----
     def _command(self, changes, dps_fn):
-        """Atualiza o estado e enfileira os DPs na mesma secao critica (mantem a ordem)."""
+        """Atualiza o estado e enfileira os DPs na mesma secao critica (mantem a ordem).
+        `changes` pode ser uma funcao do estado (depois de sair da musica)."""
         with self._cv:
             if not self.dev:
                 return False
-            self.state.update(changes)
-            self._pending.update({k: v for k, v in dps_fn(self.scheme, self.state).items() if k})
-            self._cv.notify()
+            # comando durante a musica encerra ela antes, no mesmo pacote
+            restore = self._end_music() if self._music else {}
+            self.state.update(changes(self.state) if callable(changes) else changes)
+            dps = {k: v for k, v in dps_fn(self.scheme, self.state).items() if k}
+            if self.scheme.mode not in dps:  # o comando nao escolhe o modo: a restauracao tira da musica
+                self._pending.update(restore)
+                self._force.update(restore)
+            self._pending.update(dps)
+            self._cv.notify_all()
             snapshot = dict(self.state)
         self.on_change(snapshot)
         return True
@@ -414,45 +482,67 @@ class Lamp:
     def _worker(self):
         while True:
             with self._cv:
-                while not self._pending and not self._closed:
-                    self._cv.wait()
+                self._busy = False
+                self._cv.notify_all()  # wait_idle
+                job = None
+                # primeiro os comandos normais; depois o quadro de musica quando o intervalo deixa
+                while not self._closed and not self._pending:
+                    job, wait = self._music_job()
+                    if job:
+                        break
+                    self._cv.wait(wait)
                 if self._closed:
                     return
-                dps, self._pending = self._pending, {}
+                self._busy = True
                 dev = self.dev
-                self._last_send = time.time()
-                # so o que mudou: repetir "ligar" ou "modo cor" faz a lampada refazer a
-                # transicao (fade) e a troca de cor parece atrasada
-                dps = {k: v for k, v in dps.items() if self._known.get(k) != v}
-            if not dev or not dps:
+                if not job:
+                    dps, self._pending = self._pending, {}
+                    force, self._force = self._force, set()
+                    leaving = self._saved is not None and not self._music
+                    self._last_send = time.time()
+                    # so o que mudou: repetir "ligar" ou "modo cor" faz a lampada refazer a
+                    # transicao (fade) e a troca de cor parece atrasada. A restauracao vai sempre:
+                    # os quadros mudaram a saida da lampada sem mudar o que ela informa
+                    dps = {k: v for k, v in dps.items() if k in force or self._known.get(k) != v}
+            if job:
+                self._send_music(dev, job)
                 continue
-            with self._io:
-                try:
-                    r = dev.set_multiple_values(dps)
-                except Exception as e:  # noqa: BLE001
-                    r = {"Error": str(e)}
+            if not dev:
+                continue
+            r = None
+            if dps:
+                with self._io:
+                    try:
+                        r = dev.set_multiple_values(dps)
+                    except Exception as e:  # noqa: BLE001
+                        r = {"Error": str(e)}
             if isinstance(r, dict) and "Error" in r:
                 self._lost(dev, r["Error"])
-            else:
-                with self._cv:
-                    self._known.update(dps)
+                continue
+            with self._cv:
+                self._known.update(dps)
+                if leaving and not self._music:  # a lampada saiu da musica
+                    self._saved = None
 
     def power(self, on):
         return self._command({"on": bool(on)}, lambda sc, s: {sc.switch: s["on"]})
 
     def brightness(self, pct):
         pct = max(1, min(100, int(pct)))
-        # cena/musica nao tem brilho proprio: volta para o branco
-        mode = "colour" if self.state["mode"] == "colour" and self.scheme.colour else "white"
+
+        def changes(s):
+            # cena/musica nao tem brilho proprio: volta para o branco
+            mode = "colour" if s["mode"] == "colour" and self.scheme.colour else "white"
+            return {"on": True, "bright": pct, "mode": mode}
 
         def dps(sc, s):
-            if mode == "colour":
+            if s["mode"] == "colour":
                 return {sc.switch: True, sc.colour: sc.colour_raw(s["h"], s["s"], pct)}
             d = {sc.switch: True, sc.bright: sc.bright_raw(pct) if sc.bright else None}
             if sc.mode:
                 d[sc.mode] = "white"
             return d
-        return self._command({"on": True, "bright": pct, "mode": mode}, dps)
+        return self._command(changes, dps)
 
     def temperature(self, pct):
         pct = max(0, min(100, int(pct)))
@@ -478,3 +568,204 @@ class Lamp:
         if not (s["connected"] and s["on"]):
             return None
         return hsv_rgb(s["h"], s["s"]) if s["mode"] == "colour" else kelvin_rgb(s["temp"])
+
+    # ----- musica -----
+    @property
+    def music_active(self):
+        return self._music is not None
+
+    def music_capable(self):
+        return self.dev is not None and self.scheme.colour is not None
+
+    def music_start(self, dp="27"):
+        with self._cv:
+            sc = self.scheme
+            if self._closed or not self.dev or sc.colour is None:
+                return False
+            # tipo B com DP de modo: quadros instantaneos no 27/28; senao (tipo A) so o DP de cor, devagar
+            live = sc.kind == "B" and sc.mode is not None
+            dp = str(dp) if str(dp) in ("27", "28") else "27"
+            if self._music:
+                if live:
+                    self._music["dp"] = dp
+                return True
+            if self._saved is None:  # senao a saida anterior ainda nao chegou e o _known diz "music"
+                self._saved = self._restore_point()
+            mode = "music" if live else "colour"
+            enter = {sc.switch: True, sc.mode: mode} if sc.mode else {sc.switch: True}
+            self._music = {"dp": dp if live else sc.colour, "live": live, "mode": mode, "enter": enter,
+                           "gap": MUSIC_GAP_LIVE if live else MUSIC_GAP_COLOUR}
+            self._frame = self._last_frame = self._last_raw = None
+            self._enter()
+            self.state.update(on=True, mode="music", music=True)
+            snapshot = dict(self.state)
+        self.on_change(snapshot)
+        return True
+
+    def music_frame(self, h, s, v, jump=True):
+        """Guarda o quadro mais recente; o worker manda quando o intervalo da lampada deixa."""
+        with self._cv:
+            if not self._music:
+                return
+            self._frame = (int(round(h)) % 360, max(0, min(100, int(round(s)))), max(0, min(100, int(round(v)))),
+                           bool(jump))
+            self._cv.notify_all()
+
+    def music_stop(self):
+        with self._cv:
+            if not self._music:
+                return
+            restore = self._end_music()
+            self._pending.update(restore)
+            self._force.update(restore)
+            self._cv.notify_all()
+            snapshot = dict(self.state)
+        self.on_change(snapshot)
+
+    def wait_idle(self, timeout):
+        """Espera o que esta na fila chegar na lampada (ao fechar o app). True se nada ficou pendente."""
+        end = time.monotonic() + timeout
+        with self._cv:
+            while (self._pending or self._busy) and not self._closed:
+                left = end - time.monotonic()
+                if left <= 0:
+                    return False
+                self._cv.wait(left)
+        return True
+
+    def _enter(self):
+        """Com _cv: (re)entra na musica. O primeiro quadro vai logo depois, em outro pacote (no mesmo
+        a lampada rejeita o quadro ou o vermelho de entrada passa por cima dele)."""
+        m = self._music
+        self._pending.update(m["enter"])
+        self._fresh = True
+        self._sent = max(self._sent, time.monotonic() - m["gap"])
+        self._cv.notify_all()
+
+    def _restore_point(self):
+        """Com _cv: DPs que voltam a lampada ao que ela era antes da musica, e o estado do painel."""
+        sc, s, k = self.scheme, self.state, self._known
+        mode = k.get(sc.mode) if sc.mode else None
+        if not isinstance(mode, str) or mode == "music":
+            mode = "colour" if s["mode"] == "colour" else "white"
+        dps = {sc.mode: mode} if sc.mode else {}
+        if mode.startswith("colour"):
+            dps[sc.colour] = k.get(sc.colour) or sc.colour_raw(s["h"], s["s"], s["bright"])
+        elif mode.startswith("white"):
+            if sc.bright:
+                dps[sc.bright] = k.get(sc.bright, sc.bright_raw(s["bright"]))
+            if sc.temp:
+                dps[sc.temp] = k.get(sc.temp, sc.temp_raw(s["temp"]))
+        dps[sc.switch] = bool(k.get(sc.switch, s["on"]))
+        state = {f: s[f] for f in ("h", "s", "bright", "temp")}
+        state["on"] = dps[sc.switch]
+        state["mode"] = "colour" if mode.startswith("colour") else "white" if mode.startswith("white") else mode
+        return {"dps": dps, "state": state}
+
+    def _end_music(self, restore=True):
+        """Com _cv: sai da musica. Devolve os DPs de restauracao (quem chama poe na fila)."""
+        saved = self._saved
+        self._music = self._frame = None
+        self.state["music"] = False
+        if not (restore and saved):
+            self._saved = None
+            return {}
+        self.state.update(saved["state"])
+        return dict(saved["dps"])
+
+    def _music_job(self):
+        """Com _cv: ((quick, dp, raw, drain), None) se a musica tem algo para mandar agora; senao
+        (None, segundos ate ter), None = ate alguem avisar."""
+        m = self._music
+        if not m or not self.dev:
+            return None, None
+        now = time.monotonic()
+        frame, wait = self._frame, self._sent + m["gap"] - now
+        if frame is not None and wait > 0:
+            return None, wait
+        job = None
+        if frame is not None:
+            self._frame, self._last_frame = None, frame
+            if m["live"]:
+                if self._fresh:  # a lampada ignora quadro igual ao anterior: o primeiro de cada entrada troca o T
+                    self._t ^= 1
+                self._last_raw = music_raw(*frame, temp=self._t)
+                job = (True, m["dp"], self._last_raw, self._fresh)
+                self._fresh = False
+            else:
+                raw = self.scheme.colour_raw(*frame[:3])
+                if raw != self._known.get(m["dp"]):  # igual: a lampada ja esta nessa cor
+                    job = (False, m["dp"], raw, False)
+        if job is None:
+            wait = self._sent + MUSIC_KEEPALIVE - now
+            if wait > 0:
+                return None, wait
+            # parada ha um tempo: repete o ultimo quadro (a lampada ignora) ou heartbeat (tipo A: repetir
+            # a cor faria fade e gravacao)
+            job = (True, m["dp"], self._last_raw if m["live"] else None, False)
+        self._sent = now
+        return job, None
+
+    def _send_music(self, dev, job):
+        quick, dp, raw, drain = job
+        with self._io:
+            try:
+                if quick:
+                    replies = self._quick(dev, dp, raw, drain)
+                else:  # tipo A: caminho normal; a lampada responde com o relatorio do DP de cor
+                    replies = [dev.set_value(dp, raw)]
+            except Exception as e:  # noqa: BLE001
+                replies = [{"Error": str(e)}]
+        for r in replies:
+            if isinstance(r, dict) and isinstance(r.get("dps"), dict):
+                self._report(dev, r["dps"])
+        r = replies[-1]
+        if isinstance(r, dict) and "Error" in r:
+            self._lost(dev, r["Error"])
+        elif not quick:
+            with self._cv:
+                if dev is self.dev:
+                    self._known[dp] = raw
+
+    @staticmethod
+    def _quick(dev, dp, raw, drain):
+        """Quadro (ou heartbeat, raw None) esperando so o ACK. Os DPs 27/28 nunca geram relatorio: com o
+        retry padrao da tinytuya cada quadro ficaria preso ate o timeout do socket."""
+        limit = getattr(dev, "set_sendRetryLimit", None)  # tinytuya 1.21+: 0 = nunca reenvia o pacote
+        dev.set_retry(False)
+        dev.set_sendWait(None)
+        if limit:
+            limit(0)
+        replies = []
+        try:
+            if drain:  # sobras da entrada na musica (relatorios) atrasariam a leitura de cada ACK
+                dev.set_socketTimeout(0.1)
+                for _n in range(4):
+                    r = dev.receive()
+                    if not getattr(dev, "raw_recv", None):
+                        break
+                    replies.append(r)
+            dev.set_socketTimeout(1)
+            replies.append(dev.heartbeat(nowait=False) if raw is None else dev.set_value(dp, raw))
+        finally:  # de volta ao caminho normal: padroes da tinytuya e o timeout do _open
+            dev.set_retry(True)
+            dev.set_sendWait(0.01)
+            if limit:
+                limit(None)
+            dev.set_socketTimeout(TIMEOUT)
+        return replies
+
+    def _report(self, dev, dps):
+        """Relatorio que chegou no lugar do ACK de um quadro. Se outro app tirou a lampada da musica
+        (mudou o modo ou desligou), a musica acaba aqui sem restaurar nada."""
+        with self._cv:
+            if dev is not self.dev or self._closed:
+                return
+            self._known.update(dps)
+            m, sc = self._music, self.scheme
+            if not m or not (sc.mode in dps and dps[sc.mode] != m["mode"] or dps.get(sc.switch) is False):
+                return
+            self._end_music(restore=False)
+            self._parse(dps)
+            snapshot = dict(self.state)
+        self.on_change(snapshot)

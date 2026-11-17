@@ -28,17 +28,28 @@ Window {
     readonly property var st: backend.state
     readonly property bool connected: !!st.connected
     readonly property bool lampOn: connected && !!st.on
-    readonly property bool colourMode: st.mode === "colour"
+    // musica: brilho, cor e anel das cores mostram a base do efeito; botao e luz seguem a batida
+    readonly property var music: backend.music
+    readonly property bool musicOn: backend.musicSupported && !!music.active
+    readonly property string musicStyle: music.style || "party"
+    property var mframe: ({})  // ultimo quadro do motor: h, s, v, bands, beat
+    readonly property color liveColor: Qt.hsva((mframe.h === undefined ? music.h : mframe.h) / 360,
+                                               (mframe.s === undefined ? music.s : mframe.s) / 100, 1, 1)
+    readonly property int liveLevel: mframe.v === undefined ? bright : mframe.v
+    readonly property bool colourMode: musicOn || st.mode === "colour"
     readonly property bool canColour: st.colour !== false   // lampada so de branco: sem cores
     readonly property bool canWhite: st.white !== false     // sem temperatura do branco
-    readonly property int bright: st.bright === undefined ? 100 : st.bright
+    readonly property int bright: musicOn ? music.bright : st.bright === undefined ? 100 : st.bright
     readonly property int temp: st.temp === undefined ? 50 : st.temp
-    readonly property int hue: st.h === undefined ? 30 : st.h
-    readonly property int sat: st.s === undefined ? 100 : st.s
-    readonly property color lampColor: lampOn ? (colourMode ? Qt.hsva(hue / 360, sat / 100, 1, 1) : whiteColor(temp))
-                                              : Qt.rgba(120 / 255, 124 / 255, 140 / 255, 1)
+    readonly property int hue: musicOn ? music.h : st.h === undefined ? 30 : st.h
+    readonly property int sat: musicOn ? music.s : st.s === undefined ? 100 : st.s
+    readonly property color lampColor: !lampOn ? Qt.rgba(120 / 255, 124 / 255, 140 / 255, 1)
+                                       : musicOn ? liveColor
+                                       : colourMode ? Qt.hsva(hue / 360, sat / 100, 1, 1) : whiteColor(temp)
     property string view: "main"
     property bool sheetOpen: false
+    property bool musicOpen: false
+    onMusicOnChanged: if (!musicOn) mframe = ({})
     property var cfg: ({})
     readonly property var lamps: backend.lamps
     readonly property bool allMode: backend.selected === "all"
@@ -63,6 +74,7 @@ Window {
     }
     function subtitle() {
         if (!connected) return st.status || tr("Disconnected")
+        if (musicOn) return tr("Music") + " · " + tr(styleNames[musicStyle])
         if (allMode) {  // "1 de 2 acesas, 1 desconectada"
             const parts = [st.countOn ? tr("%1 of %2 on").arg(st.countOn).arg(st.count) : tr("Off")]
             if (st.countLive < st.count) parts.push(tr("%1 offline").arg(st.count - st.countLive))
@@ -87,9 +99,30 @@ Window {
     function setTemp(v) { if (!needConnection()) send(backend.temperature(clamp(v, 0, 100))) }
     function setColour(h, s) { if (!needConnection()) send(backend.colour(clamp(h, 0, 359), clamp(s, 0, 100))) }
 
+    readonly property var styleNames: ({ pulse: "Pulse", flow: "Flow", party: "Party" })
+    readonly property var styleHints: ({ pulse: "Your colour pulses with the beat",
+                                         flow: "Colours drift slowly with the music",
+                                         party: "A new colour on every beat" })
+    function toggleMusic() {
+        if (musicOn) return backend.musicStop()
+        const err = backend.musicStart()
+        if (err) toast.show(err)
+    }
+    function musicStatusText() {
+        if (!musicOn) return tr("Lights follow your computer's sound")
+        switch (music.status) {
+        case "running": return tr("Listening to %1").arg(music.detail || "…")
+        case "silent": return tr("Nothing is playing")
+        case "no-device": return tr("No sound output found")
+        case "error": return tr("Couldn't capture the sound")
+        default: return tr("Starting…")
+        }
+    }
+
     function showView(name) {
         view = name
         sheetOpen = false
+        musicOpen = false
         if (name === "settings" && !settings.dirty) settings.fill()
     }
 
@@ -100,13 +133,15 @@ Window {
             showView(v)
             enter.restart()
         }
+        function onMusicFrame(f) { mframe = f }
+        function onNotice(m) { toast.show(m, 5000) }
     }
 
     onClosing: close => { close.accepted = false; backend.windowClosed() }
 
     Shortcut {
         sequence: "Esc"
-        onActivated: sheetOpen ? sheetOpen = false : backend.hide()
+        onActivated: musicOpen ? musicOpen = false : sheetOpen ? sheetOpen = false : backend.hide()
     }
 
     // ---------- componentes ----------
@@ -155,7 +190,8 @@ Window {
         gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
         sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
         power: '<path d="M12 3v8"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
-        back: '<path d="M15 18l-6-6 6-6"/>'
+        back: '<path d="M15 18l-6-6 6-6"/>',
+        music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>'
     })
     // #rrggbb sem o alfa (toString() da #aarrggbb quando a cor e translucida)
     function rgbHex(c) { return "#" + [c.r, c.g, c.b].map(v => ("0" + Math.round(v * 255).toString(16)).slice(-2)).join("") }
@@ -212,9 +248,20 @@ Window {
     component RoundBtn: Glass {
         id: rb
         property string glyph
+        property bool active: false  // aceso: fundo branco e icone escuro, como o chip escolhido
         signal clicked
         width: 34; height: 34; radius: 17
-        Icon { anchors.centerIn: parent; name: rb.glyph; width: 17; height: 17; stroke: rb.glyph === "gear" ? 1.8 : 2.2 }
+        Rectangle {
+            anchors.fill: parent; radius: parent.radius
+            color: Qt.rgba(1, 1, 1, 0.9)
+            opacity: rb.active ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+        }
+        Icon {
+            anchors.centerIn: parent; name: rb.glyph; width: 17; height: 17
+            stroke: ({ gear: 1.8, music: 2 })[rb.glyph] || 2.2
+            tint: rb.active ? dark : ink
+        }
         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: rb.clicked() }
     }
 
@@ -244,9 +291,10 @@ Window {
             id: glow
             anchors.fill: parent
             property color c: lampColor
-            property real k: lampOn ? 0.35 + bright / 100 * 0.45 : 0.10
-            Behavior on c { ColorAnimation { duration: 500 } }
-            Behavior on k { NumberAnimation { duration: 500 } }
+            property real k: lampOn ? 0.35 + (musicOn ? liveLevel : bright) / 100 * 0.45 : 0.10
+            // na musica a luz acompanha cada quadro; fora dela muda devagar
+            Behavior on c { ColorAnimation { duration: musicOn ? 120 : 500 } }
+            Behavior on k { NumberAnimation { duration: musicOn ? 120 : 500 } }
             ShapePath {
                 strokeWidth: -1
                 fillGradient: RadialGradient {
@@ -293,15 +341,26 @@ Window {
                         width: parent.width; height: 40
                         Column {
                             anchors.verticalCenter: parent.verticalCenter
-                            x: 4
+                            x: 4; width: headButtons.x - 12
                             spacing: 3
-                            Txt { text: lampTitle; font.family: displayFont; font.pixelSize: 20; font.weight: Font.DemiBold; font.letterSpacing: -0.4 }
-                            Txt { text: subtitle(); color: ink2; font.pixelSize: 12 }
+                            Txt { width: parent.width; elide: Text.ElideRight; text: lampTitle; font.family: displayFont; font.pixelSize: 20; font.weight: Font.DemiBold; font.letterSpacing: -0.4 }
+                            Txt { width: parent.width; elide: Text.ElideRight; text: subtitle(); color: ink2; font.pixelSize: 12 }
                         }
-                        RoundBtn {
+                        Row {
+                            id: headButtons
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                            glyph: "gear"
-                            onClicked: showView("settings")
+                            spacing: 8
+                            RoundBtn {
+                                id: musicBtn
+                                visible: backend.musicSupported
+                                glyph: "music"
+                                active: musicOn
+                                onClicked: { sheetOpen = false; musicOpen = !musicOpen }
+                            }
+                            RoundBtn {
+                                glyph: "gear"
+                                onClicked: showView("settings")
+                            }
                         }
                     }
 
@@ -421,7 +480,7 @@ Window {
                                     x: 16; y: 16; width: 46; height: 46; radius: 23
                                     color: lampOn ? lampColor : Qt.rgba(1, 1, 1, 0.1)
                                     border.color: Qt.rgba(1, 1, 1, lampOn ? 0.35 : 0.18)
-                                    Behavior on color { ColorAnimation { duration: 400 } }
+                                    Behavior on color { ColorAnimation { duration: musicOn ? 120 : 400 } }
                                     Icon { anchors.centerIn: parent; name: "power"; width: 22; height: 22; stroke: 2.2; tint: lampOn ? dark : ink }
                                     scale: powerArea.pressed ? 0.94 : 1
                                     Behavior on scale { NumberAnimation { duration: 90 } }
@@ -453,7 +512,7 @@ Window {
                                         Txt { text: tr("White"); font.weight: Font.DemiBold }
                                         Txt {
                                             anchors.right: parent.right
-                                            text: colourMode ? tr("colour mode") : kelvin(temp) + " K"
+                                            text: musicOn ? tr("music mode") : colourMode ? tr("colour mode") : kelvin(temp) + " K"
                                             color: ink2; font.family: roundedFont; font.pixelSize: 12; font.weight: Font.Medium
                                         }
                                     }
@@ -571,7 +630,7 @@ Window {
                                 MouseArea {
                                     id: wheelBtn
                                     anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                    onClicked: if (!needConnection()) sheetOpen = true
+                                    onClicked: if (!needConnection()) { musicOpen = false; sheetOpen = true }
                                 }
                             }
                         }
@@ -592,6 +651,7 @@ Window {
                 }
                 Behavior on y { NumberAnimation { duration: 340; easing.type: Easing.OutBack; easing.overshoot: 0.7 } }
                 Behavior on opacity { NumberAnimation { duration: 200 } }
+                MouseArea { anchors.fill: parent }  // clique na folha nao chega no que esta embaixo dela
                 Item {
                     x: 16; y: 14; width: parent.width - 32; height: 30
                     Txt { anchors.verticalCenter: parent.verticalCenter; text: tr("Colour"); font.family: displayFont; font.pixelSize: 17; font.weight: Font.DemiBold }
@@ -620,6 +680,173 @@ Window {
                         }
                         onPressed: m => apply(m)
                         onPositionChanged: m => apply(m)
+                    }
+                }
+            }
+
+            // ===== musica: sobe como a roda de cores =====
+            Glass {
+                id: musicSheet
+                x: 10; width: parent.width - 20; height: 346
+                y: musicOpen ? parent.height - height - 10 : parent.height + 20
+                opacity: musicOpen ? 1 : 0
+                radius: 24
+                // opaca: com texto embaixo, a transparencia da roda de cores deixaria letras fantasmas
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Qt.rgba(60 / 255, 62 / 255, 72 / 255, 1) }
+                    GradientStop { position: 1.0; color: Qt.rgba(30 / 255, 31 / 255, 38 / 255, 1) }
+                }
+                Behavior on y { NumberAnimation { duration: 340; easing.type: Easing.OutBack; easing.overshoot: 0.7 } }
+                Behavior on opacity { NumberAnimation { duration: 200 } }
+                MouseArea { anchors.fill: parent }
+                Item {
+                    x: 16; y: 14; width: parent.width - 32; height: 30
+                    Txt { anchors.verticalCenter: parent.verticalCenter; text: tr("Music"); font.family: displayFont; font.pixelSize: 17; font.weight: Font.DemiBold }
+                    Btn { anchors.right: parent.right; primary: true; text: tr("Done"); implicitHeight: 30; onClicked: musicOpen = false }
+                }
+                Column {
+                    x: 16; y: 58; width: parent.width - 32
+                    spacing: 12
+
+                    // liga/desliga e o que esta ouvindo (a linha toda e clicavel)
+                    Rectangle {
+                        width: parent.width; height: 56; radius: 16
+                        color: Qt.rgba(1, 1, 1, 0.06)
+                        border.color: hair
+                        Column {
+                            x: 14; anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 14 - musicSwitch.width - 24
+                            spacing: 3
+                            Txt { width: parent.width; elide: Text.ElideRight; text: tr("Sync with music"); font.weight: Font.DemiBold }
+                            Txt { width: parent.width; elide: Text.ElideRight; text: musicStatusText(); color: ink2; font.pixelSize: 12 }
+                        }
+                        Rectangle {
+                            id: musicSwitch
+                            anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
+                            width: 44; height: 26; radius: 13
+                            color: musicOn ? "#34c759" : Qt.rgba(1, 1, 1, 0.16)
+                            Behavior on color { ColorAnimation { duration: 200 } }
+                            Rectangle {
+                                width: 22; height: 22; radius: 11; y: 2; color: "white"
+                                x: musicOn ? 20 : 2
+                                Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
+                            }
+                        }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: toggleMusic() }
+                    }
+
+                    // 16 faixas do som, na cor que a lampada esta recebendo
+                    Rectangle {
+                        id: visualiser
+                        readonly property var levels: musicOn && mframe.bands ? mframe.bands : []
+                        width: parent.width; height: 78; radius: 16
+                        color: Qt.rgba(0, 0, 0, 0.25)
+                        Row {
+                            x: 14; y: 14; width: parent.width - 28; height: parent.height - 28
+                            spacing: 6
+                            Repeater {
+                                model: 16
+                                Rectangle {
+                                    id: bar
+                                    required property int index
+                                    readonly property real level: Math.max(0, Math.min(1, visualiser.levels[index] || 0))
+                                    readonly property color c: musicOn ? liveColor : Qt.rgba(1, 1, 1, 0.16)
+                                    width: (parent.width - 15 * 6) / 16; radius: width / 2
+                                    height: width + level * (parent.height - width)
+                                    y: parent.height - height
+                                    opacity: musicOn ? 0.55 + 0.45 * level : 1
+                                    // como as bolinhas de cor: mais clara em cima
+                                    gradient: Gradient {
+                                        GradientStop { position: 0.0; color: musicOn ? Qt.lighter(bar.c, 1.3) : bar.c }
+                                        GradientStop { position: 1.0; color: bar.c }
+                                    }
+                                    Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+                                }
+                            }
+                        }
+                    }
+
+                    // estilo: o mesmo controle segmentado das configuracoes
+                    Column {
+                        width: parent.width; spacing: 8
+                        Rectangle {
+                            id: styleSeg
+                            width: parent.width; height: 28
+                            radius: 9; color: Qt.rgba(0, 0, 0, 0.25)
+                            Row {
+                                anchors.fill: parent; anchors.margins: 2
+                                Repeater {
+                                    model: ["pulse", "flow", "party"]
+                                    Rectangle {
+                                        required property string modelData
+                                        readonly property bool chosen: musicStyle === modelData
+                                        width: parent.width / 3; height: parent.height; radius: 7
+                                        color: chosen ? Qt.rgba(1, 1, 1, 0.2) : "transparent"
+                                        Txt { anchors.centerIn: parent; text: tr(styleNames[modelData]); font.pixelSize: 12; color: parent.chosen ? ink : ink2 }
+                                        MouseArea {
+                                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                            onClicked: backend.setMusicStyle(modelData)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Txt {
+                            width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
+                            text: tr(styleHints[musicStyle] || ""); color: ink2; font.pixelSize: 12
+                        }
+                    }
+
+                    // sensibilidade: como a barra do branco, em tons neutros
+                    Column {
+                        width: parent.width; spacing: 10
+                        Item {
+                            width: parent.width; height: 16
+                            Txt { text: tr("Sensitivity"); font.weight: Font.DemiBold }
+                            Txt {
+                                anchors.right: parent.right
+                                text: sensTrack.value + "%"
+                                color: ink2; font.family: roundedFont; font.pixelSize: 12; font.weight: Font.Medium
+                            }
+                        }
+                        Rectangle {
+                            id: sensTrack
+                            readonly property int value: music.sensitivity === undefined ? 50 : music.sensitivity
+                            function set(v) { backend.setMusicSensitivity(clamp(v, 0, 100)) }
+                            width: parent.width; height: 26; radius: 13
+                            activeFocusOnTab: true
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.1) }
+                                GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0.45) }
+                            }
+                            Rectangle {
+                                width: 30; height: 30; radius: 15
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: 13 + (sensTrack.width - 26) * sensTrack.value / 100 - 15
+                                color: Qt.rgba(1, 1, 1, 0.35)
+                                border.color: "white"; border.width: 2
+                                scale: sensArea.pressed ? 1.08 : 1
+                                Behavior on x { enabled: !sensArea.pressed; NumberAnimation { duration: 120 } }
+                            }
+                            MouseArea {
+                                id: sensArea
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                cursorShape: Qt.SizeHorCursor
+                                property real acc: 0
+                                function apply(m) { sensTrack.set((m.x - 6 - 13) / (sensTrack.width - 26) * 100) }
+                                onPressed: m => { sensTrack.forceActiveFocus(); apply(m) }
+                                onPositionChanged: m => apply(m)
+                                onWheel: w => {
+                                    acc += (w.angleDelta.y - w.angleDelta.x) / 24
+                                    const d = Math.trunc(acc); if (!d) return
+                                    acc -= d; sensTrack.set(sensTrack.value + d)
+                                }
+                            }
+                            Keys.onLeftPressed: set(value - 5)
+                            Keys.onRightPressed: set(value + 5)
+                        }
                     }
                 }
             }

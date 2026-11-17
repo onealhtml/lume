@@ -15,6 +15,7 @@
 - Click the tray icon (the menu bar icon on macOS) to open the panel: brightness, white temperature,
   colour presets and a colour wheel
 - Several lamps: control one at a time or all of them together
+- Music mode (Windows and Linux): the lamps follow whatever the PC is playing
 - Mouse wheel and keyboard arrows work on the sliders
 - Reconnects by itself when the lamp is switched off at the wall or gets a new IP
 - Stays out of the taskbar and the Dock
@@ -88,6 +89,36 @@ forgets the sign-in. Without a system keystore Lume doesn't keep it and asks for
   open Lume again.
 - **macOS:** the icon lives in the menu bar; "Quit Lume" is in Settings.
 
+## Music mode
+
+On Windows and Linux (not on macOS), the music button next to the gear, or **Music** in the tray menu,
+makes the lamps follow whatever the PC is playing: Spotify, a video, a game. Lume only listens to what
+goes to your speakers or headphones, never the microphone, and the sound stays on your computer. Turn
+on **Sync with music** and pick a style:
+
+- **Pulse:** your colour, flashing brighter on the beat
+- **Flow:** colours drift around yours, faster when the music gets louder
+- **Party:** a new colour on every beat
+
+**Sensitivity** sets how easily the lights react: turn it up if they barely move, down if they jump
+at everything. While music mode is on, the colour presets and the wheel pick the main colour and the
+brightness bar sets the maximum; turning the lamp off or choosing a white stops music mode. With
+**All** selected, every lamp joins in.
+
+White-only lamps can't follow music, and those with the older data layout (tinytuya type A) follow it
+more slowly.
+
+- **Linux:** needs PulseAudio, or PipeWire with `pipewire-pulse` (the default on Fedora, Ubuntu and
+  most desktops).
+- **Bluetooth speakers and headphones** delay the sound, so the lights run slightly ahead of it.
+- **The lamp turns red and ignores the music:** some bulbs take it on another data point. Quit Lume,
+  open `config.json` (in `%APPDATA%\Lume` on Windows, `~/.config/lume` on Linux), set `"dp"` to `"28"`
+  in the `"music"` section and open Lume again:
+
+  ```
+  "music": {"style": "party", "sensitivity": 50, "dp": "28"}
+  ```
+
 ## Run from source
 
 Requires Python 3.10 or newer.
@@ -103,6 +134,8 @@ python -m venv .venv
 | `lume.pyw` | the app: tray, window and the bridge to the interface |
 | `ui/Main.qml` | the interface (Qt Quick) |
 | `core.py` | settings, start with the system and the connection to the lamp |
+| `music.py` | music mode: finds the beat and picks the colours |
+| `loopback.py` | captures the sound the PC is playing (Windows and Linux) |
 | `i18n.py` | translations; the code is written in English |
 | `smartlife_qr.py` | Smart Life QR login to get the lamps and their local keys |
 | `secure_store.py` | keeps the Smart Life sign-in encrypted by the system |

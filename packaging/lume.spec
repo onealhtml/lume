@@ -4,14 +4,19 @@
 import os
 import sys
 
+from PyInstaller.utils.hooks import collect_data_files
+
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 VERSION = os.environ.get("LUME_VERSION", "0.0.0")
 IS_MAC = sys.platform == "darwin"
+# modo musica (Windows/Linux): o soundcard le os .h dele ao importar. O hook dele so e achado se o import
+# der certo no build, e sem servidor de som (runner do CI no Linux) nao da; sem os .h a captura nao abre
+MUSIC_DATAS = [] if IS_MAC else collect_data_files("soundcard")
 
 a = Analysis(
     [os.path.join(ROOT, "lume.pyw")],
     pathex=[ROOT],
-    datas=[(os.path.join(ROOT, "ui"), "ui"), (os.path.join(ROOT, "assets"), "assets")],
+    datas=[(os.path.join(ROOT, "ui"), "ui"), (os.path.join(ROOT, "assets"), "assets")] + MUSIC_DATAS,
     hiddenimports=["PySide6.QtQuick", "PySide6.QtSvg", "tuya_sharing"]
     # cofre do sistema (login do Smart Life): o keyring acha os backends por entry points
     + ([] if sys.platform == "win32" else ["keyring.backends.macOS", "keyring.backends.SecretService"]),
@@ -20,6 +25,7 @@ a = Analysis(
               "PySide6.Qt3DCore", "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtMultimedia",
               "PySide6.QtPdf", "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtDesigner"],
     noarchive=False,
+    optimize=0,  # nunca -O: o soundcard usa assert para ver se conectou no servidor de som
 )
 
 if sys.platform.startswith("linux"):
@@ -39,6 +45,8 @@ if sys.platform.startswith("linux"):
         "libcairo", "libcairo-gobject", "libpango-1.0", "libpangocairo-1.0", "libpangoft2-1.0",
         "libepoxy", "libharfbuzz", "libfribidi", "libthai", "libdatrie", "libgraphite2", "libpixman-1",
         "libfontconfig", "libfreetype", "libpng16", "libjpeg",
+        # som do modo musica: o soundcard abre a libpulse do sistema (PulseAudio ou pipewire-pulse)
+        "libpulse", "libpulse-simple",
     }
     # so o nome exato: as libs do Pillow tem hash no nome (libxcb-9065bb12.so...) e ficam
     a.binaries = [b for b in a.binaries if os.path.basename(b[0]).split(".so")[0] not in HOST_LIBS]

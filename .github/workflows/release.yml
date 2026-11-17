@@ -10,6 +10,10 @@ on:
         description: "Versao (sem o v), so para testar o build"
         required: true
         default: "0.0.0"
+      macos:
+        description: "Gerar tambem o macOS (desligado = so Windows e Linux, mais rapido)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -21,16 +25,12 @@ jobs:
   build:
     strategy:
       fail-fast: false
+      # ubuntu-22.04: glibc mais antiga, o AppImage roda em mais distros; macos-latest: Apple Silicon.
+      # Build de teste (workflow_dispatch) sem a opcao macos: so Windows e Linux. Tag: sempre os quatro.
       matrix:
-        include:
-          - os: windows-latest
-            name: windows
-          - os: ubuntu-22.04  # glibc mais antiga: o AppImage roda em mais distros
-            name: linux
-          - os: macos-latest   # Apple Silicon
-            name: macos-arm64
-          - os: macos-15-intel
-            name: macos-intel
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && !inputs.macos
+          && '[{"os":"windows-latest","name":"windows"},{"os":"ubuntu-22.04","name":"linux"}]'
+          || '[{"os":"windows-latest","name":"windows"},{"os":"ubuntu-22.04","name":"linux"},{"os":"macos-latest","name":"macos-arm64"},{"os":"macos-15-intel","name":"macos-intel"}]') }}
     runs-on: ${{ matrix.os }}
     env:
       LUME_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}

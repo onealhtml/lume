@@ -67,10 +67,12 @@ KICK_ODF_FRAC = 0.5      # ...subida >= metade da tipica dos ultimos bumbos (not
 KICK_LVL_DB = 3.0        # ...o grave chega a 3 dB do nivel tipico deles...
 KICK_CLICK_FRAC = 0.35   # ...e, se os bumbos desta musica estalam (2-8 kHz), este tambem estala (baixo rolando nao)
 KICK_CLICK_DB = 6.0
-KICK_EARLY, KICK_EARLY_FRAC = 0.7, 0.75  # golpe antes de 0.7 intervalo: subida de 75 % do tipico e nivel a 1.5 dB
+KICK_EARLY = 0.7         # golpe antes de 0.7 do intervalo comum entre bumbos (nota do baixo no contratempo)...
+KICK_EARLY_FRAC = 0.75   # ...so e bumbo com subida de 75 % da tipica e grave a 1.5 dB do nivel tipico
 KICK_K, KICK_DELTA = 0.7, 0.7  # o limiar do golpe grave e mais baixo que o dos outros: quem separa e a classificacao
 KICK_WAIT = 3            # quadros que o golpe grave espera o pico antes de virar nota do baixo
-KICK_TYP_A = (0.5, 0.12) # o tipico dos bumbos sobe rapido e desce devagar: segue os mais fortes
+KICK_POST = 3            # o nivel tipico usa o pico do grave ate 3 quadros depois do disparo
+KICK_TYP_A = (0.5, 0.25) # o tipico dos bumbos sobe rapido e desce devagar: segue os mais fortes
 KICK_DECAY_DBPS = (1.5, 8.0)  # o nivel tipico cai devagar; sem bumbo ha 1.2 s, rapido (volume baixou, virada)
 MIN_KICK_S = 0.15        # refratario do bumbo: 0.45 do intervalo mediano, entre 0.15 e 0.3 s
 MIN_EV_S = 0.12          # refratario dos outros detectores
@@ -413,7 +415,7 @@ class MusicAnalyzer:
         hist.append(lv)
         del hist[0]
         d0, d1, d2, d3, d4 = d.tolist()
-        low = float(lv[0])
+        low = float(lv[0]) - (self._ref[0] if self._ref else 0.0)  # contra o AGC: volume mudou, o tipico segue
         delta = self.sens.beat_delta_db
         k_odf = d0 + BODY_W * d1
         s_odf = d3 + 0.5 * d2 if lv[3] > lv[4] - 3.0 else 0.0   # caixa e palma: ruido de 2-8 kHz (chimbal e mais agudo)
@@ -469,15 +471,15 @@ class MusicAnalyzer:
 
     def _kick(self, t, c):
         ev = self._ev[KICK]
-        if ev and t - ev[-1][0] < 2.0:  # intervalo mediano (so ajusta o refratario)
-            ik = [b[0] - a[0] for a, b in zip(ev[-8:], ev[-7:])] + [t - ev[-1][0]]
-            ik = [x for x in ik if x < 2.0]
+        if ev and t - ev[-1][0] < 2.0:  # intervalo comum (so ajusta refratario e limiar, nunca dispara)
+            tt = [e[0] for e in ev[-7:]] + [t]
+            ik = [y - x for x, y in zip(tt, tt[1:]) if y - x < 2.0]
             self._iki = float(np.percentile(ik, 25)) if ik else 0.0
         st = 1.0 if not self._kodf else min(1.0, 0.5 + 0.5 * c[1] / max(1e-6, self._kodf / 0.85))
         self._kodf = c[1] if not self._kodf else _typ(self._kodf, c[1])
         hi = min(c[6], 30.0)
         self._khigh = hi if self._klvl is None else _typ(self._khigh, hi)
-        self._kpk, self._post = c[2], 3
+        self._kpk, self._post = c[2], KICK_POST
         if self._driver != KICK:  # o bumbo assume na hora
             self._driver, self._dscore, self._dlost = KICK, 1.0, 0.0
         self._event(KICK, t, st, c[1] / c[5])

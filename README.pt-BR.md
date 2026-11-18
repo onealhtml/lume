@@ -96,9 +96,9 @@ da bandeja, faz as lâmpadas acompanharem o que estiver tocando no PC: Spotify, 
 Lume só escuta o que vai para as caixas de som ou o fone, nunca o microfone, e o som não sai do seu
 computador. Ligue **Sincronizar com a música** e escolha um estilo:
 
-- **Pulso:** a sua cor, piscando mais forte na batida
-- **Fluxo:** as cores passeiam em volta da sua, mais rápido quando a música fica mais alta
-- **Festa:** uma cor nova a cada batida
+- **Pulso:** a sua cor, piscando na batida (o kick ou, sem kick, o instrumento mais forte)
+- **Fluxo:** as cores giram suaves pela roda, mais rápido quando a batida é forte e rápida
+- **Festa:** cada nota do grave tem a sua cor, com um flash em cada batida
 
 A **Sensibilidade** define com que facilidade as luzes reagem: aumente se elas quase não se mexem,
 diminua se pulam com qualquer coisa. Com o modo música ligado, as cores prontas e a roda escolhem a cor

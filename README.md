@@ -96,9 +96,9 @@ makes the lamps follow whatever the PC is playing: Spotify, a video, a game. Lum
 goes to your speakers or headphones, never the microphone, and the sound stays on your computer. Turn
 on **Sync with music** and pick a style:
 
-- **Pulse:** your colour, flashing brighter on the beat
-- **Flow:** colours drift around yours, faster when the music gets louder
-- **Party:** a new colour on every beat
+- **Pulse:** your colour, flashing on the beat (the kick, or the strongest instrument when there is none)
+- **Flow:** colours glide smoothly around the wheel, faster when the beat is strong and fast
+- **Party:** each bass note gets its own colour, with a flash on every beat
 
 **Sensitivity** sets how easily the lights react: turn it up if they barely move, down if they jump
 at everything. While music mode is on, the colour presets and the wheel pick the main colour and the

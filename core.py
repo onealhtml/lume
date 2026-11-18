@@ -258,16 +258,30 @@ SCHEMES = {
 
 TIMEOUT = 2  # socket do caminho normal (o _open e a volta depois de cada quadro de musica)
 # musica: intervalo minimo entre quadros por lampada. Tipo B (DP 27/28, tempo real): o quadro de golpe (flash,
-# cor nova) sai 60 ms depois do anterior; os outros (o brilho respirando) a cada 0,25 s, para a lampada estar
-# livre quando o golpe chega. Tres quadros seguidos nunca em menos de 0,2 s: na media no maximo 10/s (mais
-# rapido que isso a lampada se perde). Tipo A (so o DP de cor): cada escrita faz fade, relatorio e talvez gravacao
+# cor nova) sai 60 ms depois do anterior; o rapido (a queda do flash, a cor de uma nota nova) 90 ms; os outros
+# (o brilho respirando) a cada 0,25 s, para a lampada estar livre quando o golpe chega. Tres quadros seguidos
+# nunca em menos de 0,2 s: na media no maximo 10/s (mais rapido que isso a lampada se perde). Tipo A (so o DP
+# de cor): cada escrita faz fade, relatorio e talvez gravacao
 MUSIC_GAP_BEAT = 0.06
+MUSIC_GAP_QUICK = 0.09
 MUSIC_GAP_LIVE = 0.25
 MUSIC_GAP_PAIR = 0.2
 MUSIC_GAP_COLOUR = 0.5
 MUSIC_DEBUG = os.environ.get("LUME_MUSIC_DEBUG") == "1"  # uma linha por quadro de golpe (fila, envio, ACK)
 MUSIC_KEEPALIVE = 8.0  # sem quadro por esse tempo: repete o ultimo (a lampada derruba conexao parada)
 MUSIC_FAILS = 3  # quadros seguidos com erro: a musica acaba nesta lampada
+# relogio dos intervalos da musica: no Windows com Python < 3.13 o time.monotonic() anda de ~15.6 em 15.6 ms
+# (GetTickCount64) e os intervalos de 60/90/200 ms erram ate um tique; o perf_counter e preciso em todo lugar
+CLOCK = time.perf_counter
+
+
+def debug_print(msg):
+    """Linha de diagnostico (LUME_MUSIC_DEBUG) que nunca derruba quem chama: stdout fechado, terminal que sumiu
+    ou erro gravando o lume.log no app empacotado."""
+    try:
+        print(msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class Lamp:
@@ -294,10 +308,11 @@ class Lamp:
         self._saved = None         # como sair da musica (DPs e estado de antes); fica ate a lampada confirmar
         self._frame = None         # quadro (h, s, v, jump) ainda nao mandado: so o mais recente importa
         self._beat = None          # o quadro guardado e de golpe: quando entrou na fila (passa na frente)
+        self._prio = 0             # prioridade do quadro guardado: 2 golpe, 1 rapido, 0 comum
         self._sent2 = 0.0          # envio anterior ao ultimo (media de 10/s)
         self._last_frame = None    # ultimo quadro mandado, e a string dele (keepalive)
         self._last_raw = None
-        self._sent = 0.0           # time.monotonic() do ultimo quadro ou keepalive
+        self._sent = 0.0           # CLOCK() do ultimo quadro ou keepalive
         self._fresh = False        # o proximo quadro e o primeiro depois de entrar na musica
         self._t = 0                # T do quadro, alterna a cada entrada: a lampada ignora quadro repetido
         self._music_fails = 0      # quadros seguidos que falharam (mesmo reconectando entre eles)
@@ -331,6 +346,7 @@ class Lamp:
             dev, self.dev = self.dev, None
             self._pending, self._force = {}, set()
             self._music = self._frame = self._saved = self._beat = None
+            self._prio = 0
             self.state["music"] = False
             self._cv.notify_all()
         if dev:
@@ -413,6 +429,9 @@ class Lamp:
             self.state.update(on=True, mode="music")
             if self._frame is None:
                 self._frame = self._last_frame
+            # golpe guardado enquanto a conexao estava caida ja passou: vai como quadro comum, e qualquer
+            # quadro novo toma o lugar dele
+            self._prio, self._beat = 0, None
             self._enter()
         elif self._saved:
             # a saida da musica nao chegou na lampada (a conexao caiu antes): manda de novo
@@ -619,6 +638,7 @@ class Lamp:
             self._music = {"dp": dp if live else sc.colour, "live": live, "mode": mode, "enter": enter,
                            "gap": MUSIC_GAP_LIVE if live else MUSIC_GAP_COLOUR}
             self._frame = self._last_frame = self._last_raw = self._beat = None
+            self._prio = 0
             self._music_fails = 0
             self._enter()
             self.state.update(on=True, mode="music", music=True)
@@ -626,16 +646,21 @@ class Lamp:
         self.on_change(snapshot)
         return True
 
-    def music_frame(self, h, s, v, jump=True, beat=False):
+    def music_frame(self, h, s, v, jump=True, beat=False, quick=False):
         """Guarda o quadro mais recente; o worker manda quando o intervalo da lampada deixa.
-        beat: quadro de golpe, sai antes; um quadro comum nao toma o lugar de um de golpe ainda na fila
-        (devolve False: quem chama manda de novo depois)."""
+        beat: quadro de golpe, sai antes; quick: queda do flash ou cor de nota nova, sai logo depois dele.
+        Um quadro de prioridade menor nao toma o lugar de um maior ainda na fila (devolve False: quem chama
+        manda de novo depois)."""
+        prio = 2 if beat else 1 if quick else 0
         with self._cv:
-            if not self._music or (self._beat is not None and not beat):
+            # o quadro de prioridade maior so e protegido enquanto pode sair: sem conexao (reconectando) o mais
+            # novo toma o lugar dele, senao cada quadro seria recusado e o golpe velho sairia depois da volta
+            if not self._music or (self._frame is not None and self._prio > prio and self.dev is not None):
                 return False
             self._frame = (int(round(h)) % 360, max(0, min(100, int(round(s)))), max(0, min(100, int(round(v)))),
                            bool(jump))
-            self._beat = time.monotonic() if beat else None
+            self._prio = prio
+            self._beat = CLOCK() if beat else None
             self._cv.notify_all()
             return True
 
@@ -667,7 +692,7 @@ class Lamp:
         m = self._music
         self._pending.update(m["enter"])
         self._fresh = True
-        self._sent = max(self._sent, time.monotonic() - m["gap"])
+        self._sent = max(self._sent, CLOCK() - m["gap"])
         self._cv.notify_all()
 
     def _restore_point(self):
@@ -694,6 +719,7 @@ class Lamp:
         """Com _cv: sai da musica. Devolve os DPs de restauracao (quem chama poe na fila)."""
         saved = self._saved
         self._music = self._frame = self._beat = None
+        self._prio = 0
         self.state["music"] = False
         if not (restore and saved):
             self._saved = None
@@ -707,17 +733,18 @@ class Lamp:
         m = self._music
         if not m or not self.dev:
             return None, None
-        now = time.monotonic()
+        now = CLOCK()
         frame, beat = self._frame, self._beat
-        if beat is not None and m["live"]:
-            wait = max(self._sent + MUSIC_GAP_BEAT, self._sent2 + MUSIC_GAP_PAIR) - now
+        if frame is not None and self._prio and m["live"]:
+            gap = MUSIC_GAP_BEAT if self._prio == 2 else MUSIC_GAP_QUICK
+            wait = max(self._sent + gap, self._sent2 + MUSIC_GAP_PAIR) - now
         else:
             wait = self._sent + m["gap"] - now
         if frame is not None and wait > 0:
             return None, wait
         job = None
         if frame is not None:
-            self._frame, self._last_frame, self._beat = None, frame, None
+            self._frame, self._last_frame, self._beat, self._prio = None, frame, None, 0
             if m["live"]:
                 if self._fresh:  # a lampada ignora quadro igual ao anterior: o primeiro de cada entrada troca o T
                     self._t ^= 1
@@ -742,7 +769,7 @@ class Lamp:
 
     def _send_music(self, dev, job):
         quick, dp, raw, drain = job[:4]
-        t_send = time.monotonic()
+        t_send = CLOCK()
         with self._io:
             try:
                 if quick:
@@ -756,10 +783,9 @@ class Lamp:
                 self._report(dev, r["dps"])
         r = replies[-1]
         if len(job) > 4:  # LUME_MUSIC_DEBUG: quadro de golpe
-            t_ack = time.monotonic()
-            print(f"lume-music lampada {self.id}: golpe na fila {job[4]:.3f}, enviado +{1000 * (t_send - job[4]):.0f} ms,"
-                  f" ACK +{1000 * (t_ack - job[4]):.0f} ms{' ERRO' if isinstance(r, dict) and 'Error' in r else ''}",
-                  flush=True)
+            t_ack = CLOCK()
+            debug_print(f"lume-music lampada {self.id}: golpe na fila {job[4]:.3f}, enviado +{1000 * (t_send - job[4]):.0f}"
+                        f" ms, ACK +{1000 * (t_ack - job[4]):.0f} ms{' ERRO' if isinstance(r, dict) and 'Error' in r else ''}")
         if isinstance(r, dict) and "Error" in r:
             with self._cv:
                 if dev is self.dev:

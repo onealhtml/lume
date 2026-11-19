@@ -156,9 +156,9 @@ FLOOR_V = 10             # %: perto de 0 as lampadas parecem apagadas (tipo B: m
 GAMMA = 1.6              # contraste percebido: v = piso + faixa * y**1.6
 FLASH_DECAY_S = 0.20     # depois da queda o resto do flash some assim
 HOLD_S = 0.08            # o flash fica ~80 ms no pico (perto do brilho percebido maximo) e cai num quadro rapido
-FALL_KEEP = {"pulse": 0.3, "flow": 0.0, "party": 0.15}  # quanto do flash sobra na queda
-FALL_JUMP = {"pulse": True, "flow": False, "party": True}  # queda em degrau ou em fade de ~300 ms (firmware)
-PULSE_TAIL_S = 0.12      # pulse: degrau ate 30 % e, 120 ms depois, o resto some em fade (cauda suave curta).
+FALL_KEEP = {"pulse": 0.0, "flow": 0.0, "party": 0.3}  # quanto do flash sobra na queda
+FALL_JUMP = {"pulse": False, "flow": False, "party": True}  # queda em degrau ou em fade de ~300 ms (firmware)
+TAIL_S = 0.12            # party: degrau ate 30 % e, 120 ms depois, o resto some em fade (cauda curta, nao seca).
                          # Golpe, queda e cauda: 3 quadros em 0.2 s, o limite da lampada
 FLOW_FLASH = 0.5         # flow: o golpe so incha o brilho
 FLOW_GLIDE = 240.0       # flow: teto de graus/s da matiz (o empurrao mais forte gira ate isso)
@@ -1032,7 +1032,7 @@ class LightMapper:
         self._last_fire = -1e9
         self._last_change = -1e9
         self._fall = None           # quando sai a queda do flash
-        self._tail = None           # pulse: quando a cauda do flash some (fade)
+        self._tail = None           # party: quando a cauda do flash some (fade)
         self.wake = None
         self.last_fire = False
         self.last_kind = ""
@@ -1098,7 +1098,7 @@ class LightMapper:
             self._last_fire = now
             self._nbeats += 1
             self._fall = now + HOLD_S
-            self._tail = now + HOLD_S + PULSE_TAIL_S if self.style == "pulse" else None
+            self._tail = now + HOLD_S + TAIL_S if self.style == "party" else None
             amp = sp.flash * (0.55 + 0.45 * strength)
             for i in range(self.n):
                 # varias lampadas: a cada golpe metade alternada leva o flash inteiro
@@ -1113,7 +1113,7 @@ class LightMapper:
             fx = 1.0
         else:
             fx = FALL_KEEP[style] * math.exp(-(since - HOLD_S) / FLASH_DECAY_S)
-            if style == "pulse" and since >= HOLD_S + PULSE_TAIL_S - 0.002:
+            if style == "party" and since >= HOLD_S + TAIL_S - 0.002:
                 fx = 0.0
         fl = [x * fx for x in self._amp]
         depth = sp.depth
@@ -1203,8 +1203,8 @@ class LightMapper:
             h, s = hs[i]
             # branco so no pico do flash: resto de branco entre os golpes desbotaria a cor
             # sempre forte, independente do brilho do painel: 100 % no golpe mais forte, ~80 % no mais fraco
-            # (pulse: depois do pico sobra 30 % ate a cauda, que some em fade)
-            keep = 1.0 if fx >= 1.0 else fx if style == "pulse" else 0.0
+            # (party: depois do pico sobra 30 % ate a cauda, que some em fade)
+            keep = 1.0 if fx >= 1.0 else fx if style == "party" else 0.0
             w = 0
             if wf and keep > 0 and self._amp[i] > 0:
                 peak = 100 * min(1.0, 0.6 + 0.4 * self._amp[i] / max(sp.flash, 1e-6))
@@ -1220,7 +1220,7 @@ class LightMapper:
             kind, jump = "beat", style != "flow"
         elif self._fall is None and self._tail is not None and now >= self._tail:
             self._tail = None
-            kind, jump = "quick", False  # pulse: a cauda some em fade
+            kind, jump = "quick", False  # party: a cauda some em fade
         elif self._fall is not None and now >= self._fall:
             self._fall = None
             kind, jump = "quick", FALL_JUMP[style]

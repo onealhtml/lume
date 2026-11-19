@@ -58,9 +58,17 @@ FINE_EDGES = (35.0, 150.0, 400.0, 2000.0, 8000.0, 16000.0)  # grave, corpo, medi
 LAG = 3                  # subida contra o quadro de 16 ms atras: o ataque do bumbo cabe, um inchaco de 100 ms nao
 BODY_W = 0.6             # golpe grave = subida do grave + 0.6 * a do corpo (onde o bumbo comeca a varredura)
 STATS_S = 1.5            # janela das estatisticas do limiar adaptativo de cada detector
-LAYERS = ("kick", "bass", "snare", "broadband")
+LAYERS = ("kick", "bass", "snare", "broadband", "build")
 A_WEIGHT_DB = (-20.0, -6.0, 0.0, 1.0, -3.0)  # ponderacao A aproximada das 5 bandas finas: forca percebida
 KICK, BASSN, SNARE, BROAD = range(4)
+BUILD = 4                # buildup: nao e detector, e o estado "caixa acelerando sem bumbo"
+BUILD_NOKICK_S = 1.0     # buildup: sem bumbo ha 1 s...
+BUILD_WIN_S = 1.5        # ...e caixa/ataques (juntos, sem contar o mesmo golpe 2x) nos ultimos 1.5 s...
+BUILD_RATE = 3.0         # ...a 3 ou mais por segundo
+BUILD_MERGE_S = 0.07     # caixa e ataque geral a menos disso sao o mesmo golpe
+BUILD_GAP_S = 0.22       # strobe: no maximo ~4.5 flashes/s (cada flash sao 2 quadros; a lampada aguenta ~10/s)
+BUILD_RAMP_S = 8.0       # o strobe vai do fraco ao maximo em ~8 s (ou antes, se a caixa acelera)
+BUILD_HOLD_S = 0.6       # pausa curta na caixa (o respiro antes do drop) nao encerra o buildup
 LOW_SHARE_DB = -8.0      # bumbo: grave >= 16 % da energia no golpe...
 LOWMID_DB, LOWMID_S = 0.0, 2.0  # ...numa mistura em que o grave (2 s) nao fica abaixo do medio (fala fica ~10 dB)
 LOWMID_MUSIC_DB = -12.0  # ...ou ate 12 dB abaixo quando o detector de pausas ja mediu 3 s e diz musica (rock, acustico,
@@ -97,6 +105,11 @@ LABEL_FRAC = 0.3         # com varredura forte, queda < 30 % da mediana: era not
 LABEL_RESCUE = 0.6       # golpe recusado com queda >= 60 % da mediana era bumbo (conta no intervalo)
 KICK_TYP_A = (0.5, 0.25) # o tipico dos bumbos sobe rapido e desce devagar: segue os mais fortes
 KICK_DECAY_DBPS = (1.5, 8.0)  # o nivel tipico cai devagar; sem bumbo ha 1.2 s, rapido (volume baixou, virada)
+# grade do bumbo: com bumbo em todo tempo (house, techno, funk, pop) o baixo no contratempo nao vira bumbo.
+# Periodo = o menor que explica (90 %) tanto quanto o melhor os ultimos 16 bumbos; com 70 % deles na grade
+# (+-12 %), golpe longe dela (> 18 % do periodo) so e bumbo se for bem mais forte que o tipico. Ritmo
+# quebrado (DnB, breakbeat) nao fecha a grade e fica como antes; depois de uma pausa no bumbo a grade solta
+GRID_N, GRID_FIT, GRID_ON, GRID_OFF = 6, 0.7, 0.12, 0.18
 MIN_KICK_S = 0.15        # refratario do bumbo: 0.45 do intervalo mediano, entre 0.15 e 0.3 s
 MIN_EV_S = 0.12          # refratario dos outros detectores
 BASS_RATIO = 1.4         # nota do baixo: subida >= 1.4 x o limiar (ruido parado passaria raspando)
@@ -339,6 +352,7 @@ class MusicAnalyzer:
         self._kdrops = []           # quedas do corpo dos ultimos bumbos (rotulo tardio)
         self._klab = -1e9           # ultimo bumbo confirmado
         self._iki = 0.0             # intervalo comum (quartil de baixo) entre bumbos
+        self._kper, self._kanchor, self._kfit = 0.0, -1e9, 0.0  # grade do bumbo: periodo, fase, quanto encaixa
 
     def _reset_state(self):
         self._t = 0.0               # relogio do audio (fim do quadro fino mais novo)
@@ -379,6 +393,9 @@ class MusicAnalyzer:
         self._d3h = [0.0] * 4
         self._kick_reset()
         self._driver = None
+        self._build = False         # buildup: caixa acelerando sem bumbo
+        self._bstart = self._bfire = self._bseen = -1e9
+        self._bprog = 0.0
         self._dscore = 0.0
         self._dlost = 0.0
         self._next_drive = 0.0
@@ -677,12 +694,21 @@ class MusicAnalyzer:
                 kl, lvl, sh = self._klvl4, c[8], (c[9] if knock_sub else -99.0)
             else:
                 lvl, sh = c[2], c[3]
+            # fora da grade do bumbo: so passa golpe bem mais forte que o tipico (baixo no contratempo nao)
+            per = self._kper
+            grid = self._kfit >= GRID_FIT and per > 0 and c[0] - self._last[KICK] < 1.5 * per
+            ph = ((c[0] - self._kanchor) / per) % 1.0 if grid else 0.0
+            off = grid and min(ph, 1.0 - ph) > GRID_OFF
+            if off and kl is not None and not (lvl >= kl + KICK_LOUD_DB and c[1] >= self._kodf):
+                sh = -99.0  # recusa: segue o caminho da nota do baixo
             if sh >= LOW_SHARE_DB and lowmid and (kl is None or (
-                    lvl >= kl - KICK_LVL_DB * (0.5 if early else 1.0)
-                    and c[1] >= (KICK_EARLY_FRAC if early else KICK_ODF_FRAC) * self._kodf
+                    lvl >= kl - KICK_LVL_DB * (0.5 if early and not grid else 1.0)
+                    and c[1] >= (KICK_EARLY_FRAC if early and not grid else KICK_ODF_FRAC) * self._kodf
                     and (kh < KICK_CLICK_DB or c[6] >= KICK_CLICK_FRAC * kh
                          or (lvl >= kl + KICK_LOUD_DB and c[1] >= KICK_EARLY_FRAC * self._kodf)))):
                 self._cand = None
+                if grid and not off:
+                    self._kanchor = c[0]  # a grade segue o ultimo bumbo nela (sem deriva)
                 self._kick(t, c)
             elif c[4] >= (KNOCK_WAIT if knock else KICK_WAIT):  # espera o estalo inteiro (o sub as vezes chega antes)
                 self._cand = None
@@ -699,12 +725,18 @@ class MusicAnalyzer:
         if t >= self._next_drive:
             self._next_drive = t + DRIVE_EVERY_S
             self._drive(t)
+            self._build_check(t)
         target = 0.0 if self._driver is None else 1.0 if self._driver == KICK else min(1.0, 0.4 + self._dscore)
         self._clar += (target - self._clar) * (self._a_clar_up if target > self._clar else self._a_clar_down)
 
     def _kick(self, t, c):
         st = 1.0 if not self._kodf else min(1.0, 0.5 + 0.5 * c[1] / max(1e-6, self._kodf / 0.85))
-        if self._driver is None:  # sem ninguem conduzindo o bumbo assume na hora; de outro, quando ficar regular
+        # sem ninguem conduzindo o bumbo assume na hora (e no drop, logo depois do buildup); de outro, quando
+        # ficar regular
+        if self._build or t - self._bseen < 2.0:
+            self._build = False
+            self._driver, self._dscore, self._dlost = KICK, 1.0, 0.0
+        if self._driver is None:
             self._driver, self._dscore, self._dlost = KICK, 1.0, 0.0
         self._pend(KICK, c)
         self._event(KICK, t, st, c[1] / c[5], keep=False)  # entra na regularidade so depois do rotulo
@@ -756,6 +788,30 @@ class MusicAnalyzer:
         ik = [y - x for x, y in zip(tt, tt[1:]) if 0.1 < y - x < 2.0]
         if ik:
             self._iki = float(np.percentile(ik, 25))
+        self._grid_update()
+
+    def _grid_update(self):
+        """Periodo e fase da grade dos bumbos (so serve para recusar golpe fora dela; nada dispara nela)."""
+        tt = np.array([e[0] for e in self._ev[KICK][-16:]])
+        if len(tt) < GRID_N:
+            self._kfit = 0.0
+            return
+        d = tt[:, None] - tt[None, :]
+        near = np.abs(d[None, :, :] - REG_PERIODS[:, None, None]) < REG_TOL
+        score = near.any(axis=2)[:, 1:].mean(axis=1)
+        k = int(np.argmax(score >= 0.9 * score.max()))  # o menor periodo quase tao bom quanto o melhor
+        per = float(REG_PERIODS[k])
+        # periodo fino: mediana dos intervalos perto dele
+        ik = np.diff(tt)
+        m = ik[np.abs(ik - per) < 0.1 * per]
+        if len(m) >= 3:
+            per = float(np.median(m))
+        z = np.exp(2j * np.pi * tt / per).sum()
+        ph = (tt / per - np.angle(z) / (2 * np.pi) + 0.5) % 1.0 - 0.5
+        on = np.abs(ph) < GRID_ON
+        self._kper, self._kfit = per, float(on.mean())
+        if on.any():
+            self._kanchor = float(tt[on][-1])
 
     def _ev_add(self, layer, t, weight, sal=0.0):
         ev = self._ev[layer]
@@ -770,11 +826,32 @@ class MusicAnalyzer:
         if keep:
             self._ev_add(layer, t, weight, sal)
         strength = max(0.15, strength)
+        if self._build and layer in (SNARE, BROAD):
+            # buildup: cada caixa e um flash do strobe (que fica mais forte), no ritmo que a lampada aguenta
+            if t - self._bfire >= BUILD_GAP_S:
+                self._bfire = t
+                self._hit = [BUILD, 0.3 + 0.7 * self._bprog]
+            return
         if layer == self._driver or (layer == KICK and self._driver == BASSN):
             if self._hit is None or strength > self._hit[1]:
                 self._hit = [layer, strength]
         elif self._sub is None or strength > self._sub[1]:
             self._sub = [layer, strength]
+
+    def _build_check(self, t):
+        """Buildup: sem bumbo, caixa e ataques densos. O progresso (0..1) sobe com o tempo e com a velocidade."""
+        tt = sorted(e[0] for ev in (self._ev[SNARE], self._ev[BROAD]) for e in ev if t - e[0] < BUILD_WIN_S)
+        hits = [x for k, x in enumerate(tt) if k == 0 or x - tt[k - 1] >= BUILD_MERGE_S]
+        rate = len(hits) / BUILD_WIN_S
+        on = (self._gate and t - self._last[KICK] > BUILD_NOKICK_S and self._pause < PAUSE_MAX
+              and rate >= BUILD_RATE)
+        if on:
+            if not self._build:
+                self._build, self._bstart = True, t
+            self._bseen = t
+            self._bprog = min(1.0, max((t - self._bstart) / BUILD_RAMP_S, (rate - BUILD_RATE) / 5.0))
+        elif self._build and (t - self._bseen > BUILD_HOLD_S or t - self._last[KICK] <= BUILD_NOKICK_S):
+            self._build = False
 
     def _drive(self, t):
         """Quem conduz: o bumbo enquanto existe; senao o grupo mais forte e regular, com histerese. Sem bumbo
@@ -851,9 +928,11 @@ class MusicAnalyzer:
                      beat=hit is not None, beats=int(hit is not None), beat_strength=hit[1] if hit else 0.0,
                      beat_wall=wall if hit else old.beat_wall, layer=LAYERS[hit[0]] if hit else "",
                      sub=sub is not None, sub_strength=sub[1] if sub else 0.0, sub_layer=LAYERS[sub[0]] if sub else "",
-                     onset=onset > 0, onset_strength=onset, driver=LAYERS[drv] if drv is not None else "",
-                     tempo_bpm=60.0 / per if per > 0.2 else 0.0, period=per, clarity=self._clar,
-                     locked=drv is not None, next_beat=nxt, note=self._note, note_conf=self._nconf,
+                     onset=onset > 0, onset_strength=onset,
+                     driver="build" if self._build else LAYERS[drv] if drv is not None else "",
+                     tempo_bpm=(60.0 / self._kper if drv == KICK and self._kfit >= GRID_FIT and self._kper > 0
+                                else 60.0 / per if per > 0.2 else 0.0), period=per, clarity=self._clar,
+                     locked=drv is not None or self._build, next_beat=None if self._build else nxt, note=self._note, note_conf=self._nconf,
                      note_n=self._note_n)
         with self._lock:
             self._out = o
@@ -929,6 +1008,7 @@ class LightMapper:
         self._lfast = self._lslow = 0.0  # volume curto e longo (drop)
         self._drop_t = -1e9
         self._drop = False          # drop visto: o proximo golpe da o salto
+        self._in_build = False
 
     def set_style(self, style):
         if style not in STYLES:
@@ -1028,7 +1108,14 @@ class LightMapper:
             self._lslow += (loud - self._lslow) * (1 - math.exp(-dt / DROP_SLOW_S))
             if f.gate and self._lfast - self._lslow >= DROP_RISE and now - self._drop_t >= DROP_GAP_S:
                 self._drop, self._drop_t = True, now
-            if fire:
+            build = f.driver == "build"
+            if self._in_build and not build:  # fim do buildup: o primeiro golpe depois e o drop
+                self._drop = True
+            self._in_build = build
+            if fire and build:  # strobe do buildup: a cor so sobe um pouco a cada flash (tensao)
+                self._party_h = (self._party_h + 6.0) % 360
+                self._pbeats, self._last_change = 0, now
+            elif fire:
                 self._pbeats += 1
                 per = f.period if f.period > 0.2 else PARTY_CHANGE_S
                 every = max(1, min(PARTY_MAX_EVERY, round(PARTY_CHANGE_S / per)))
@@ -1070,6 +1157,8 @@ class LightMapper:
             # branco so no pico do flash: resto de branco entre os golpes desbotaria a cor
             # sempre forte, independente do brilho do painel: 100 % no golpe mais forte, ~80 % no mais fraco
             w = int(round(100 * min(1.0, 0.6 + 0.4 * fl[i] / max(sp.flash, 1e-6)))) if wf and fx >= 1.0 and fl[i] > 0 else 0
+            if w and f.driver == "build":  # strobe do buildup: de ~50 % ate o maximo
+                w = int(round(100 * min(1.0, 0.25 + 0.75 * f.beat_strength)))
             out.append((int(round(h)) % 360, int(round(s)), max(FLOOR_V, min(100, int(round(vs)))), w))
 
         # que quadro e este: golpe, queda do flash / cor de nota nova (rapido) ou comum

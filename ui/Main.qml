@@ -768,6 +768,17 @@ Window {
                         }
                     }
 
+                    // diagnostico: quem a luz esta seguindo agora (bumbo, baixo, caixa...) e o andamento
+                    Txt {
+                        readonly property var drivers: ({ kick: "Kick", bass: "Bass", snare: "Snare", broadband: "Mixed" })
+                        width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
+                        visible: musicOn; color: ink2; font.pixelSize: 12
+                        text: !mframe.active ? "" : mframe.driver
+                              ? tr("Following: %1").arg(tr(drivers[mframe.driver] || mframe.driver))
+                                + (mframe.bpm > 0 ? " · " + mframe.bpm + " BPM" : "")
+                              : tr("No steady beat")
+                    }
+
                     // estilo: o mesmo controle segmentado das configuracoes
                     Column {
                         width: parent.width; spacing: 8

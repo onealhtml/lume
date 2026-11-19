@@ -98,7 +98,7 @@ on **Sync with music** and pick a style:
 
 - **Pulse:** your colour, flashing on the beat (the kick, or the strongest instrument when there is none)
 - **Flow:** colours glide smoothly around the wheel, faster when the beat is strong and fast
-- **Party:** each bass note gets its own colour, with a flash on every beat
+- **Party:** a flash on every beat, and the colour changes with it (a big jump when the music drops)
 
 **Sensitivity** sets how easily the lights react: turn it up if they barely move, down if they jump
 at everything. While music mode is on, the colour presets and the wheel pick the main colour and the

@@ -98,7 +98,7 @@ computador. Ligue **Sincronizar com a música** e escolha um estilo:
 
 - **Pulso:** a sua cor, piscando na batida (o kick ou, sem kick, o instrumento mais forte)
 - **Fluxo:** as cores giram suaves pela roda, mais rápido quando a batida é forte e rápida
-- **Festa:** cada nota do grave tem a sua cor, com um flash em cada batida
+- **Festa:** flash em cada batida, e a cor troca junto com ela (um salto grande quando a música explode)
 
 A **Sensibilidade** define com que facilidade as luzes reagem: aumente se elas quase não se mexem,
 diminua se pulam com qualquer coisa. Com o modo música ligado, as cores prontas e a roda escolhem a cor

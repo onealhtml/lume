@@ -112,6 +112,12 @@ PT = {
     "No sound output found": "Nenhuma saída de som encontrada",
     "Couldn't capture the sound": "Não consegui capturar o som",
     "music mode": "modo música",
+    "Following: %1": "Seguindo: %1",
+    "Kick": "bumbo",
+    "Bass": "baixo",
+    "Snare": "caixa",
+    "Mixed": "tudo junto",
+    "No steady beat": "Sem batida constante",
 }
 
 ES = {
@@ -219,6 +225,12 @@ ES = {
     "No sound output found": "No hay salida de sonido",
     "Couldn't capture the sound": "No se pudo capturar el sonido",
     "music mode": "modo música",
+    "Following: %1": "Siguiendo: %1",
+    "Kick": "bombo",
+    "Bass": "bajo",
+    "Snare": "caja",
+    "Mixed": "todo junto",
+    "No steady beat": "Sin ritmo constante",
 }
 
 FR = {
@@ -326,6 +338,12 @@ FR = {
     "No sound output found": "Aucune sortie audio trouvée",
     "Couldn't capture the sound": "Impossible de capter le son",
     "music mode": "mode musique",
+    "Following: %1": "Suit : %1",
+    "Kick": "grosse caisse",
+    "Bass": "basse",
+    "Snare": "caisse claire",
+    'Mixed': "l'ensemble",
+    "No steady beat": "Pas de rythme régulier",
 }
 
 DE = {
@@ -433,6 +451,12 @@ DE = {
     "No sound output found": "Kein Audioausgang gefunden",
     "Couldn't capture the sound": "Ton konnte nicht erfasst werden",
     "music mode": "Musikmodus",
+    "Following: %1": "Folgt: %1",
+    "Kick": "Kick",
+    "Bass": "Bass",
+    "Snare": "Snare",
+    "Mixed": "alles zusammen",
+    "No steady beat": "Kein gleichmäßiger Beat",
 }
 
 IT = {
@@ -540,6 +564,12 @@ IT = {
     "No sound output found": "Nessuna uscita audio trovata",
     "Couldn't capture the sound": "Impossibile catturare l'audio",
     "music mode": "modalità musica",
+    "Following: %1": "Segue: %1",
+    "Kick": "cassa",
+    "Bass": "basso",
+    "Snare": "rullante",
+    "Mixed": "tutto insieme",
+    "No steady beat": "Nessun ritmo costante",
 }
 
 JA = {
@@ -647,6 +677,12 @@ JA = {
     "No sound output found": "音声出力が見つかりません",
     "Couldn't capture the sound": "音声を取得できませんでした",
     "music mode": "音楽モード",
+    "Following: %1": "追従中: %1",
+    "Kick": "キック",
+    "Bass": "ベース",
+    "Snare": "スネア",
+    "Mixed": "全体",
+    "No steady beat": "一定のビートなし",
 }
 
 ZH = {
@@ -754,6 +790,12 @@ ZH = {
     "No sound output found": "未找到音频输出",
     "Couldn't capture the sound": "无法捕获声音",
     "music mode": "音乐模式",
+    "Following: %1": "跟随: %1",
+    "Kick": "底鼓",
+    "Bass": "贝斯",
+    "Snare": "军鼓",
+    "Mixed": "整体",
+    "No steady beat": "没有稳定的节拍",
 }
 
 TABLES = {"pt": PT, "es": ES, "fr": FR, "de": DE, "it": IT, "ja": JA, "zh": ZH}

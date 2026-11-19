@@ -148,16 +148,21 @@ FLOW_BEAT_DEG = 24.0     # cada golpe de quem conduz empurra ate 24 graus: 2 gol
 FLOW_NOTE_DEG = 30.0     # nota nova do baixo empurra 30 graus (a troca de nota aparece na cor)
 FLOW_PUSH_S = 0.4        # o empurrao sai em fade de ~0.4 s: gira mais rapido, nunca salta
 FLOW_PUSH_MAX = 60.0
-PARTY_GAP_S = 0.2        # party sem nota: no maximo 5 cores por segundo
+PARTY_GAP_S = 0.2        # party: no maximo 5 cores por segundo
+PARTY_CHANGE_S = 0.55    # party: a cor troca so no golpe, a cada ~0.55 s de golpes (1 por tempo ate ~110 bpm
+                         # e de 2 em 2 no DnB); nunca entre golpes
+PARTY_MAX_EVERY = 4
+DROP_FAST_S, DROP_SLOW_S = 0.3, 4.0  # drop: volume da ultima ~0.3 s bem acima do dos ultimos ~4 s...
+DROP_RISE = 0.25         # ...(0.25 do envelope 0-1): o proximo golpe da um salto grande de cor
+DROP_GAP_S = 4.0
+DROP_JUMP = 180.0
 PARTY_WHITE = 35         # party: no pico do flash a cor fica mais clara (o RGB todo acende)
 BREATH_RISE = 1.0        # o brilho fora dos golpes sobe no maximo 100 %/s (respira, nao pisca)...
 BREATH_TOP = 0.6         # ...e fica abaixo de 60 % da faixa: o flash sempre tem para onde subir
 DRIVEN_TOP = 0.3         # com alguem conduzindo o fundo fica mais baixo: mais contraste no golpe
 IDLE_S = 0.10            # antes do golpe esperado nada sai: a lampada esta livre quando ele chega
-NOTE_HUE = 30.0          # graus por semitom (party e flow): cada nota a sua cor
 PULSE_NOTE_DEG = 20.0    # pulse: a nota so desloca a cor do usuario ate 20 graus
 NOTE_ON = 0.5            # confianca minima para a nota mandar na cor
-NOTE_STALE_S = 8.0       # party: baixo na mesma nota ha 8 s -> as cores voltam a trocar nos golpes
 GOLDEN = 137.508         # angulo de ouro: cores seguidas do party bem diferentes
 
 # ----- MusicSync -----
@@ -919,6 +924,10 @@ class LightMapper:
         self._note_n = 0
         self._note_t = -1e9         # quando a nota do baixo mudou pela ultima vez
         self._pulse_off = 0.0
+        self._pbeats = 0            # party: golpes desde a ultima troca de cor
+        self._lfast = self._lslow = 0.0  # volume curto e longo (drop)
+        self._drop_t = -1e9
+        self._drop = False          # drop visto: o proximo golpe da o salto
 
     def set_style(self, style):
         if style not in STYLES:
@@ -1008,12 +1017,23 @@ class LightMapper:
             drive = top * (0.6 * f.loud + 0.4 * f.punch)
             fl = [FLOW_FLASH * x for x in fl]
         else:  # party
-            if note >= 0 and now - self._note_t < NOTE_STALE_S:
-                self._party_h = (self.base_hue + note * NOTE_HUE) % 360
-                self._last_change = now
-            elif fire and now - self._last_change >= PARTY_GAP_S:
-                self._party_h = (self._party_h + GOLDEN + self._rng.uniform(-20, 20)) % 360
-                self._last_change = now
+            # a cor so troca NO golpe de quem conduz (com o flash), nunca no meio do compasso. A cada ~0.55 s
+            # de golpes uma cor bem diferente (angulo de ouro); no drop (volume salta) um salto de meia roda
+            loud = f.loud if f.gate else 0.0
+            self._lfast += (loud - self._lfast) * (1 - math.exp(-dt / DROP_FAST_S))
+            self._lslow += (loud - self._lslow) * (1 - math.exp(-dt / DROP_SLOW_S))
+            if f.gate and self._lfast - self._lslow >= DROP_RISE and now - self._drop_t >= DROP_GAP_S:
+                self._drop, self._drop_t = True, now
+            if fire:
+                self._pbeats += 1
+                per = f.period if f.period > 0.2 else PARTY_CHANGE_S
+                every = max(1, min(PARTY_MAX_EVERY, round(PARTY_CHANGE_S / per)))
+                if self._drop:
+                    self._party_h = (self._party_h + DROP_JUMP + self._rng.uniform(-30, 30)) % 360
+                    self._drop, self._pbeats, self._last_change = False, 0, now
+                elif self._pbeats >= every and now - self._last_change >= PARTY_GAP_S:
+                    self._party_h = (self._party_h + GOLDEN + self._rng.uniform(-20, 20)) % 360
+                    self._pbeats, self._last_change = 0, now
             elif f.gate and not f.driver and now - self._last_change > 4.0:
                 self._party_h = (self._party_h + 8.0 * dt * a) % 360   # nada ritmico: deriva lenta
             step = 360.0 / self.n if self.n <= 4 else GOLDEN
@@ -1287,7 +1307,8 @@ class MusicSync:
                 _call(self._on_status, *st)
             h, s, v = out[0]
             _call(self._on_frame, {"level": round(float(f.loud), 3), "bands": [round(float(b), 3) for b in f.bands],
-                                   "beat": bool(f.beat), "h": h, "s": s, "v": v, "active": bool(f.gate)})
+                                   "beat": bool(f.beat), "h": h, "s": s, "v": v, "active": bool(f.gate),
+                                   "driver": f.driver if f.gate else "", "bpm": round(float(f.tempo_bpm))})
         _call(self._on_status, "stopped", "")
 
 

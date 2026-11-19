@@ -5,6 +5,7 @@
 - Music mode (Windows and Linux): the lamps follow whatever the PC is playing, in three styles (Pulse,
   Flow and Party) with adjustable sensitivity. Lume listens to what goes to the speakers, never the
   microphone. Open it with the music button next to the gear, or from the tray menu.
+  The panel shows what the light is following (kick, bass, snare) and the tempo.
 - Several lamps: pick one at the top of the panel, or **All** to control every lamp at once.
   Each lamp keeps its own connection, so one switched off at the wall doesn't stop the others.
 - Smart Life import: after signing in, choose which lamps from your account to add. Lume finds each

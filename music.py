@@ -63,8 +63,9 @@ A_WEIGHT_DB = (-20.0, -6.0, 0.0, 1.0, -3.0)  # ponderacao A aproximada das 5 ban
 KICK, BASSN, SNARE, BROAD = range(4)
 BEAT = 5                 # batida da rede (beattrack, o modelo online do madmom)
 RNN_CONF_A = 0.25        # confianca = media do pico da ativacao nas ultimas batidas (~4)...
-RNN_ON, RNN_OFF = 0.15, 0.10  # ...a rede conduz acima de 0.15 e larga abaixo de 0.10 (batida real: ~0.3;
-                         # ruido: ~0.02). Abaixo disso, ou com fala, os detectores de sempre conduzem
+RNN_MIN = 0.06           # ...com a rede, SO ela da o flash (trocar de detector muda a fase e engasga);
+                         # abaixo disso (ruido ~0.02: silencio, fala) nao pisca, so respira. Batida
+                         # fraca da flash fraco. O buildup so deixa o flash mais forte, nunca muda o tempo
 BUILD = 4                # buildup: nao e detector, e o estado "caixa acelerando sem bumbo"
 BUILD_NOKICK_S = 1.0     # buildup: sem bumbo ha 1 s...
 BUILD_WIN_S = 1.5        # ...e caixa/ataques (juntos, sem contar o mesmo golpe 2x) nos ultimos 1.5 s...
@@ -155,8 +156,10 @@ FLOOR_V = 10             # %: perto de 0 as lampadas parecem apagadas (tipo B: m
 GAMMA = 1.6              # contraste percebido: v = piso + faixa * y**1.6
 FLASH_DECAY_S = 0.20     # depois da queda o resto do flash some assim
 HOLD_S = 0.08            # o flash fica ~80 ms no pico (perto do brilho percebido maximo) e cai num quadro rapido
-FALL_KEEP = {"pulse": 0.0, "flow": 0.0, "party": 0.15}  # quanto do flash sobra na queda
-FALL_JUMP = {"pulse": False, "flow": False, "party": True}  # queda em degrau (party) ou em fade de ~300 ms
+FALL_KEEP = {"pulse": 0.3, "flow": 0.0, "party": 0.15}  # quanto do flash sobra na queda
+FALL_JUMP = {"pulse": True, "flow": False, "party": True}  # queda em degrau ou em fade de ~300 ms (firmware)
+PULSE_TAIL_S = 0.12      # pulse: degrau ate 30 % e, 120 ms depois, o resto some em fade (cauda suave curta).
+                         # Golpe, queda e cauda: 3 quadros em 0.2 s, o limite da lampada
 FLOW_FLASH = 0.5         # flow: o golpe so incha o brilho
 FLOW_GLIDE = 240.0       # flow: teto de graus/s da matiz (o empurrao mais forte gira ate isso)
 FLOW_IDLE_DPS = 2.0      # flow: a cor gira sempre para frente, 2 graus/s no calmo...
@@ -488,12 +491,13 @@ class MusicAnalyzer:
         self._publish(pk)
 
     def _rnn_beat(self, a):
-        """Batida da rede (pico da ativacao a): com confianca, e ela que da o flash (menos no buildup)."""
+        """Batida da rede (pico da ativacao a): a unica fonte de flash quando a rede existe."""
         self._rconf += RNN_CONF_A * (a - self._rconf)
-        on = RNN_OFF if self._rdrive else RNN_ON
-        self._rdrive = self._gate and self._pause < PAUSE_MAX and self._rconf >= on
-        if self._rdrive and not self._build:
+        self._rdrive = self._gate and self._rconf >= RNN_MIN
+        if self._rdrive:
             st = min(1.0, 0.3 + 0.7 * a / 0.5)
+            if self._build:  # buildup: o flash vai ficando mais forte ate o drop
+                st = max(st, 0.3 + 0.7 * self._bprog)
             if self._hit is None or st > self._hit[1]:
                 self._hit = [BEAT, st]
 
@@ -857,6 +861,8 @@ class MusicAnalyzer:
         if keep:
             self._ev_add(layer, t, weight, sal)
         strength = max(0.15, strength)
+        if self._rnn is not None:  # com a rede so ela pisca: os detectores so informam (buildup, drop)
+            return
         if self._build and layer in (SNARE, BROAD):
             # buildup: cada caixa e um flash do strobe (que fica mais forte), no ritmo que a lampada aguenta
             if t - self._bfire >= BUILD_GAP_S:
@@ -954,7 +960,7 @@ class MusicAnalyzer:
         if last is not None:
             k = max(1, math.ceil((self._t - last) / per - 0.15))
             nxt = wall + (last + k * per - self._t)
-        rdrive = self._rdrive and not self._build
+        rdrive = self._rdrive
         if rdrive:  # a rede conduz: andamento e proxima batida pelo estado do HMM dela
             per = 60.0 / self._rnn.bpm
             nxt = wall + (1.0 - self._rnn.phase) * per
@@ -964,8 +970,9 @@ class MusicAnalyzer:
                      beat_wall=wall if hit else old.beat_wall, layer=LAYERS[hit[0]] if hit else "",
                      sub=sub is not None, sub_strength=sub[1] if sub else 0.0, sub_layer=LAYERS[sub[0]] if sub else "",
                      onset=onset > 0, onset_strength=onset,
-                     driver="build" if self._build else "beat" if rdrive else LAYERS[drv] if drv is not None else "",
-                     tempo_bpm=(60.0 / per if rdrive else
+                     driver=("build" if self._build and (rdrive or self._rnn is None) else "beat" if rdrive
+                             else "" if self._rnn is not None else LAYERS[drv] if drv is not None else ""),
+                     tempo_bpm=(60.0 / per if rdrive else 0.0 if self._rnn is not None else
                                 60.0 / self._kper if drv == KICK and self._kfit >= GRID_FIT and self._kper > 0
                                 else 60.0 / per if per > 0.2 else 0.0), period=per, clarity=self._clar,
                      locked=drv is not None or self._build or rdrive, next_beat=None if self._build else nxt, note=self._note, note_conf=self._nconf,
@@ -1025,6 +1032,7 @@ class LightMapper:
         self._last_fire = -1e9
         self._last_change = -1e9
         self._fall = None           # quando sai a queda do flash
+        self._tail = None           # pulse: quando a cauda do flash some (fade)
         self.wake = None
         self.last_fire = False
         self.last_kind = ""
@@ -1090,6 +1098,7 @@ class LightMapper:
             self._last_fire = now
             self._nbeats += 1
             self._fall = now + HOLD_S
+            self._tail = now + HOLD_S + PULSE_TAIL_S if self.style == "pulse" else None
             amp = sp.flash * (0.55 + 0.45 * strength)
             for i in range(self.n):
                 # varias lampadas: a cada golpe metade alternada leva o flash inteiro
@@ -1104,6 +1113,8 @@ class LightMapper:
             fx = 1.0
         else:
             fx = FALL_KEEP[style] * math.exp(-(since - HOLD_S) / FLASH_DECAY_S)
+            if style == "pulse" and since >= HOLD_S + PULSE_TAIL_S - 0.002:
+                fx = 0.0
         fl = [x * fx for x in self._amp]
         depth = sp.depth
         rng = self.vmax - FLOOR_V
@@ -1192,9 +1203,14 @@ class LightMapper:
             h, s = hs[i]
             # branco so no pico do flash: resto de branco entre os golpes desbotaria a cor
             # sempre forte, independente do brilho do painel: 100 % no golpe mais forte, ~80 % no mais fraco
-            w = int(round(100 * min(1.0, 0.6 + 0.4 * fl[i] / max(sp.flash, 1e-6)))) if wf and fx >= 1.0 and fl[i] > 0 else 0
-            if w and f.driver == "build":  # strobe do buildup: de ~50 % ate o maximo
-                w = int(round(100 * min(1.0, 0.25 + 0.75 * f.beat_strength)))
+            # (pulse: depois do pico sobra 30 % ate a cauda, que some em fade)
+            keep = 1.0 if fx >= 1.0 else fx if style == "pulse" else 0.0
+            w = 0
+            if wf and keep > 0 and self._amp[i] > 0:
+                peak = 100 * min(1.0, 0.6 + 0.4 * self._amp[i] / max(sp.flash, 1e-6))
+                if f.driver == "build":  # buildup: de ~50 % ate o maximo
+                    peak = 100 * min(1.0, 0.25 + 0.75 * f.beat_strength)
+                w = int(round(peak * keep))
             out.append((int(round(h)) % 360, int(round(s)), max(FLOOR_V, min(100, int(round(vs)))), w))
 
         # que quadro e este: golpe, queda do flash / cor de nota nova (rapido) ou comum
@@ -1202,6 +1218,9 @@ class LightMapper:
         shown = self._shown
         if fire:
             kind, jump = "beat", style != "flow"
+        elif self._fall is None and self._tail is not None and now >= self._tail:
+            self._tail = None
+            kind, jump = "quick", False  # pulse: a cauda some em fade
         elif self._fall is not None and now >= self._fall:
             self._fall = None
             kind, jump = "quick", FALL_JUMP[style]
@@ -1219,7 +1238,8 @@ class LightMapper:
                 jump = False
         self._shown = out
         self.last_kind, self.last_jump = kind, jump
-        self.wake = self._fall      # o tick acorda na hora da queda (o tick comum e de 67 ms)
+        # o tick acorda na hora da queda e da cauda (o tick comum e de 67 ms)
+        self.wake = self._fall if self._fall is not None else self._tail
         return out
 
 

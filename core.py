@@ -16,7 +16,7 @@ FROZEN = getattr(sys, "frozen", False)  # rodando do executavel gerado pelo PyIn
 # arquivos do app (ui/, assets/): no executavel ficam na pasta temporaria/interna do PyInstaller
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 MUSIC_STYLES = ("pulse", "flow", "party")
-MUSIC_DEFAULTS = {"style": "party", "sensitivity": 50, "dp": "27"}  # dp: "28" se a lampada ignora o 27
+MUSIC_DEFAULTS = {"style": "party", "sensitivity": 50, "dp": "27", "white": True}  # white: flash nos LEDs brancos  # dp: "28" se a lampada ignora o 27
 # vidro no Windows: "acrylic" ou "blur"
 DEFAULT_CONFIG = {"lamps": [], "selected": "", "glass": "acrylic", "music": dict(MUSIC_DEFAULTS)}
 LAMP_DEFAULTS = {"id": "", "key": "", "name": "", "ip": "Auto", "last_ip": "", "version": "3.5"}
@@ -63,7 +63,8 @@ def load_config():
     except (TypeError, ValueError, OverflowError):
         sens = MUSIC_DEFAULTS["sensitivity"]
     cfg["music"] = dict(m, style=m.get("style") if m.get("style") in MUSIC_STYLES else MUSIC_DEFAULTS["style"],
-                        sensitivity=sens, dp=str(m.get("dp")) if str(m.get("dp")) in ("27", "28") else "27")
+                        sensitivity=sens, dp=str(m.get("dp")) if str(m.get("dp")) in ("27", "28") else "27",
+                        white=m.get("white") is not False)
     return cfg
 
 
@@ -185,15 +186,17 @@ def hsv_rgb(h, s):
     return tuple(round(x * 255) for x in colorsys.hsv_to_rgb(h / 360, s / 100, 1))
 
 
-def music_raw(h, s, v, jump=True, temp=0):
+def music_raw(h, s, v, jump=True, temp=0, white=0):
     """Quadro de tempo real dos DPs 27/28 (tipo B), 21 caracteres: M HHHH SSSS VVVV BBBB TTTT.
-    M 0 = salto, 1 = gradiente; h 0-359, s e v 0-100 viram 0-1000. B (branco) fica 0: acima disso
-    os LEDs brancos das lampadas RGBCW acendem junto. T so serve para o quadro nao repetir o anterior."""
+    M 0 = salto, 1 = gradiente; h 0-359, s, v e white 0-100 viram 0-1000. B (white) acende os LEDs brancos
+    das lampadas RGBCW junto com o RGB (o flash branco); T e a temperatura deles: frio, trocando 1000/999 so
+    para o quadro nao repetir o anterior."""
     s = max(0, min(1000, int(round(s * 10))))
     v = max(0, min(1000, int(round(v * 10))))
     if 0 < v < 10:  # de 1 a 9 a lampada apaga; 10 e o minimo do produto
         v = 10
-    return f"{0 if jump else 1}{int(round(h)) % 360:04x}{s:04x}{v:04x}{0:04x}{temp:04x}"
+    w = max(0, min(1000, int(round(white * 10))))
+    return f"{0 if jump else 1}{int(round(h)) % 360:04x}{s:04x}{v:04x}{w:04x}{1000 - (temp & 1):04x}"
 
 
 class Scheme:
@@ -646,7 +649,7 @@ class Lamp:
         self.on_change(snapshot)
         return True
 
-    def music_frame(self, h, s, v, jump=True, beat=False, quick=False):
+    def music_frame(self, h, s, v, jump=True, beat=False, quick=False, white=0):
         """Guarda o quadro mais recente; o worker manda quando o intervalo da lampada deixa.
         beat: quadro de golpe, sai antes; quick: queda do flash ou cor de nota nova, sai logo depois dele.
         Um quadro de prioridade menor nao toma o lugar de um maior ainda na fila (devolve False: quem chama
@@ -658,7 +661,7 @@ class Lamp:
             if not self._music or (self._frame is not None and self._prio > prio and self.dev is not None):
                 return False
             self._frame = (int(round(h)) % 360, max(0, min(100, int(round(s)))), max(0, min(100, int(round(v)))),
-                           bool(jump))
+                           bool(jump), max(0, min(100, int(round(white)))))
             self._prio = prio
             self._beat = CLOCK() if beat else None
             self._cv.notify_all()
@@ -748,7 +751,7 @@ class Lamp:
             if m["live"]:
                 if self._fresh:  # a lampada ignora quadro igual ao anterior: o primeiro de cada entrada troca o T
                     self._t ^= 1
-                self._last_raw = music_raw(*frame, temp=self._t)
+                self._last_raw = music_raw(*frame[:4], temp=self._t, white=frame[4])
                 job = (True, m["dp"], self._last_raw, self._fresh)
                 self._fresh = False
             else:

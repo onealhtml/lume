@@ -118,6 +118,7 @@ PT = {
     "Snare": "caixa",
     "Mixed": "tudo junto",
     "No steady beat": "Sem batida constante",
+    "White flash": "Flash branco",
 }
 
 ES = {
@@ -231,6 +232,7 @@ ES = {
     "Snare": "caja",
     "Mixed": "todo junto",
     "No steady beat": "Sin ritmo constante",
+    "White flash": "Destello blanco",
 }
 
 FR = {
@@ -344,6 +346,7 @@ FR = {
     "Snare": "caisse claire",
     'Mixed': "l'ensemble",
     "No steady beat": "Pas de rythme régulier",
+    "White flash": "Flash blanc",
 }
 
 DE = {
@@ -457,6 +460,7 @@ DE = {
     "Snare": "Snare",
     "Mixed": "alles zusammen",
     "No steady beat": "Kein gleichmäßiger Beat",
+    "White flash": "Weißer Blitz",
 }
 
 IT = {
@@ -570,6 +574,7 @@ IT = {
     "Snare": "rullante",
     "Mixed": "tutto insieme",
     "No steady beat": "Nessun ritmo costante",
+    "White flash": "Flash bianco",
 }
 
 JA = {
@@ -683,6 +688,7 @@ JA = {
     "Snare": "スネア",
     "Mixed": "全体",
     "No steady beat": "一定のビートなし",
+    "White flash": "白色フラッシュ",
 }
 
 ZH = {
@@ -796,6 +802,7 @@ ZH = {
     "Snare": "军鼓",
     "Mixed": "整体",
     "No steady beat": "没有稳定的节拍",
+    "White flash": "白光闪烁",
 }
 
 TABLES = {"pt": PT, "es": ES, "fr": FR, "de": DE, "it": IT, "ja": JA, "zh": ZH}

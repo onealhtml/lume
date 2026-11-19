@@ -156,7 +156,7 @@ DROP_FAST_S, DROP_SLOW_S = 0.3, 4.0  # drop: volume da ultima ~0.3 s bem acima d
 DROP_RISE = 0.25         # ...(0.25 do envelope 0-1): o proximo golpe da um salto grande de cor
 DROP_GAP_S = 4.0
 DROP_JUMP = 180.0
-PARTY_WHITE = 35         # party: no pico do flash a cor fica mais clara (o RGB todo acende)
+PARTY_WHITE = 35         # party sem flash branco: no pico do flash a cor fica mais clara (o RGB todo acende)
 BREATH_RISE = 1.0        # o brilho fora dos golpes sobe no maximo 100 %/s (respira, nao pisca)...
 BREATH_TOP = 0.6         # ...e fica abaixo de 60 % da faixa: o flash sempre tem para onde subir
 DRIVEN_TOP = 0.3         # com alguem conduzindo o fundo fica mais baixo: mais contraste no golpe
@@ -902,6 +902,7 @@ class LightMapper:
         self.n = max(1, int(n_lamps))
         self.latency = float(latency)
         self.rest = rest
+        self.white = True           # flash nos LEDs brancos (o RGB fica na cor)
         self._rng = random.Random(seed)
         self._now = None
         self._amp = [0.0] * self.n  # forca do ultimo flash de cada lampada
@@ -939,6 +940,9 @@ class LightMapper:
 
     def set_base(self, h, s):
         self.base_hue, self.base_sat = float(h) % 360, max(0.0, min(100.0, float(s)))
+
+    def set_white(self, on):
+        self.white = bool(on)
 
     def set_max_bright(self, pct):
         self.vmax = max(FLOOR_V + 20.0, min(100.0, float(pct)))
@@ -1037,7 +1041,8 @@ class LightMapper:
             elif f.gate and not f.driver and now - self._last_change > 4.0:
                 self._party_h = (self._party_h + 8.0 * dt * a) % 360   # nada ritmico: deriva lenta
             step = 360.0 / self.n if self.n <= 4 else GOLDEN
-            hs = [((self._party_h + i * step) % 360, 100.0 - PARTY_WHITE * min(1.0, fl[i])) for i in range(self.n)]
+            pw = 0.0 if self.white else PARTY_WHITE
+            hs = [((self._party_h + i * step) % 360, 100.0 - pw * min(1.0, fl[i])) for i in range(self.n)]
             drive = top * (0.25 + 0.5 * f.loud + 0.25 * f.punch)
 
         # fora dos golpes o brilho respira: sobe no maximo 100 %/s (nota do baixo nao vira flash), desce suave
@@ -1049,8 +1054,10 @@ class LightMapper:
         # fala/ambiente: descida mais lenta, silabas nao piscam
         fall = math.exp(-dt / (0.08 + 0.3 * (1 - clar)))
         out = []
+        # flash branco: os LEDs brancos levam o flash e o RGB fica na cor (no flow o golpe so incha: sem branco)
+        wf = self.white and style != "flow"
         for i in range(self.n):
-            y = 1 - (1 - yb) * (1 - fl[i])  # screen: o flash puxa para o maximo
+            y = yb if wf else 1 - (1 - yb) * (1 - fl[i])  # screen: o flash puxa para o maximo
             y = 0.0 if y < 0 else 1.0 if y > 1 else y
             v = FLOOR_V + rng * ((1 - depth) + depth * y ** GAMMA)
             ai = max(a, min(1.0, fl[i]))  # o flash nao espera o "active" subir: o primeiro bumbo ja pisca
@@ -1060,7 +1067,9 @@ class LightMapper:
             vs = v if vs is None or v > vs or since < 1.0 else v + (vs - v) * fall
             self._vs[i] = vs
             h, s = hs[i]
-            out.append((int(round(h)) % 360, int(round(s)), max(FLOOR_V, min(100, int(round(vs))))))
+            # branco so no pico do flash: resto de branco entre os golpes desbotaria a cor
+            w = int(round(self.vmax * min(1.0, fl[i]) * (0.4 + 0.6 * depth))) if wf and fx >= 1.0 else 0
+            out.append((int(round(h)) % 360, int(round(s)), max(FLOOR_V, min(100, int(round(vs)))), w))
 
         # que quadro e este: golpe, queda do flash / cor de nota nova (rapido) ou comum
         kind, jump = "", style != "flow"
@@ -1079,7 +1088,7 @@ class LightMapper:
                 kind, jump = "quick", style == "party"  # sem golpes regulares a nota nova vai logo (flow desliza)
             elif idle or held:
                 # com alguem conduzindo a luz segura entre os golpes (so muda no golpe, na queda e na nota)
-                out = [(o[0], o[1], p[2]) for o, p in zip(out, shown)] if hue_moved and not idle else shown
+                out = [(o[0], o[1], p[2], p[3]) for o, p in zip(out, shown)] if hue_moved and not idle else shown
             if style != "party" and kind == "":
                 jump = False
         self._shown = out
@@ -1098,7 +1107,8 @@ def needs_send(prev, cur, dv=2, dh=3, ds=3):
     if prev is None:
         return True
     d = abs(prev[0] - cur[0]) % 360
-    return min(d, 360 - d) >= dh or abs(prev[1] - cur[1]) >= ds or abs(prev[2] - cur[2]) >= dv
+    return (min(d, 360 - d) >= dh or abs(prev[1] - cur[1]) >= ds or abs(prev[2] - cur[2]) >= dv
+            or abs(prev[3] - cur[3]) >= dv)
 
 
 class MusicSync:
@@ -1130,8 +1140,9 @@ class MusicSync:
     def running(self):
         return self._thread is not None
 
-    def start(self, lamps, style, sensitivity, base_hue, base_sat, max_bright, dp="27"):
+    def start(self, lamps, style, sensitivity, base_hue, base_sat, max_bright, dp="27", white=True):
         if self.running:  # ja ligado: so ajusta
+            self.set_white(white)
             self.set_style(style)
             self.set_sensitivity(sensitivity)
             self.set_base(base_hue, base_sat)
@@ -1147,6 +1158,7 @@ class MusicSync:
         with self._lock:
             self._mapper = LightMapper(style if style in STYLES else STYLES[-1], sensitivity, base_hue, base_sat,
                                        max_bright, n_lamps=len(joined))
+            self._mapper.set_white(white)
             self._lamps, self._sent = joined, {}
             self._requick = set()
         self._cap_state, self._cap_detail = None, ""
@@ -1212,6 +1224,11 @@ class MusicSync:
         with self._lock:
             if self._mapper:
                 self._mapper.set_base(h, s)
+
+    def set_white(self, on):
+        with self._lock:
+            if self._mapper:
+                self._mapper.set_white(on)
 
     def set_max_bright(self, pct):
         with self._lock:
@@ -1284,12 +1301,12 @@ class MusicSync:
                     if needs_send(self._sent.get(lamp), c):
                         self._sent[lamp] = c
                         sends.append((lamp, c))
-            for lamp, (h, s, v) in sends:
+            for lamp, (h, s, v, w) in sends:
                 # quadro rapido recusado (o golpe ainda estava na fila) volta como rapido no proximo tick: como
                 # quadro comum a queda do flash so sairia no caminho lento (~250 ms no pico em vez de ~90 ms)
                 q = {"quick": True} if (kind == "quick" or lamp in self._requick) and not beat else {}
                 # nao bloqueia: a lampada guarda so o ultimo. False: um golpe ainda esperava, este vai no proximo tick
-                if _call(lamp.music_frame, h, s, v, jump=jump, beat=beat, **q) is False:
+                if _call(lamp.music_frame, h, s, v, jump=jump, beat=beat, white=w, **q) is False:
                     with self._lock:
                         self._sent.pop(lamp, None)
                         if q:
@@ -1305,7 +1322,7 @@ class MusicSync:
             if st != status:
                 status = st
                 _call(self._on_status, *st)
-            h, s, v = out[0]
+            h, s, v = out[0][:3]
             _call(self._on_frame, {"level": round(float(f.loud), 3), "bands": [round(float(b), 3) for b in f.bands],
                                    "beat": bool(f.beat), "h": h, "s": s, "v": v, "active": bool(f.gate),
                                    "driver": f.driver if f.gate else "", "bpm": round(float(f.tempo_bpm))})

@@ -688,7 +688,7 @@ Window {
             // ===== musica: sobe como a roda de cores =====
             Glass {
                 id: musicSheet
-                x: 10; width: parent.width - 20; height: 346
+                x: 10; width: parent.width - 20; height: musicCol.y + musicCol.height + 16
                 enabled: musicOpen  // fechada fica so fora da tela: sem isso o Tab chegaria na sensibilidade invisivel
                 y: musicOpen ? parent.height - height - 10 : parent.height + 20
                 opacity: musicOpen ? 1 : 0
@@ -707,6 +707,7 @@ Window {
                     Btn { anchors.right: parent.right; primary: true; text: tr("Done"); implicitHeight: 30; onClicked: musicOpen = false }
                 }
                 Column {
+                    id: musicCol
                     x: 16; y: 58; width: parent.width - 32
                     spacing: 12
 
@@ -860,6 +861,25 @@ Window {
                             Keys.onLeftPressed: set(value - 5)
                             Keys.onRightPressed: set(value + 5)
                         }
+                    }
+
+                    // flash nos LEDs brancos da lampada (o RGB fica na cor) ou no proprio RGB
+                    Item {
+                        width: parent.width; height: 26
+                        readonly property bool on: music.white !== false
+                        Txt { anchors.verticalCenter: parent.verticalCenter; text: tr("White flash"); font.weight: Font.DemiBold }
+                        Rectangle {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            width: 44; height: 26; radius: 13
+                            color: parent.on ? "#34c759" : Qt.rgba(1, 1, 1, 0.16)
+                            Behavior on color { ColorAnimation { duration: 200 } }
+                            Rectangle {
+                                width: 22; height: 22; radius: 11; y: 2; color: "white"
+                                x: parent.parent.on ? 20 : 2
+                                Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
+                            }
+                        }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.setMusicWhite(!parent.on) }
                     }
                 }
             }

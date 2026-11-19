@@ -881,6 +881,25 @@ Window {
                         }
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.setMusicWhite(!parent.on) }
                     }
+
+                    // pisca so nas batidas com bumbo (e na caixa do buildup), ou em toda batida
+                    Item {
+                        width: parent.width; height: 26
+                        readonly property bool on: music.kickOnly !== false
+                        Txt { anchors.verticalCenter: parent.verticalCenter; text: tr("Flash only on the kick"); font.weight: Font.DemiBold }
+                        Rectangle {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            width: 44; height: 26; radius: 13
+                            color: parent.on ? "#34c759" : Qt.rgba(1, 1, 1, 0.16)
+                            Behavior on color { ColorAnimation { duration: 200 } }
+                            Rectangle {
+                                width: 22; height: 22; radius: 11; y: 2; color: "white"
+                                x: parent.parent.on ? 20 : 2
+                                Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
+                            }
+                        }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: backend.setMusicKickOnly(!parent.on) }
+                    }
                 }
             }
 

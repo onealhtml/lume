@@ -187,6 +187,10 @@ class Backend(QObject):
     def setMusicWhite(self, on):
         self._app.set_music_option("white", on)
 
+    @Slot(bool)
+    def setMusicKickOnly(self, on):
+        self._app.set_music_option("kick_only", on)
+
     @Slot("QVariantMap")
     def _music_frame(self, frame):
         if self._app.music_on and self._app.visible:  # painel fechado: nada para desenhar
@@ -565,6 +569,7 @@ class App:
     def music_view(self):
         m = self.cfg["music"]
         return {"active": self.music_on, "style": m["style"], "sensitivity": m["sensitivity"], "white": m["white"],
+                "kickOnly": m["kick_only"],
                 "status": self.music_status[0], "detail": self.music_status[1],
                 "h": self.music_base[0], "s": self.music_base[1], "bright": self.music_bright}
 
@@ -591,7 +596,7 @@ class App:
         m = self.cfg["music"]
         try:
             joined = self.music.start(lamps, m["style"], m["sensitivity"], *self.music_base, self.music_bright,
-                                      m["dp"], m["white"])
+                                      m["dp"], m["white"], m["kick_only"])
         except Exception as e:  # noqa: BLE001 - erro do motor nao derruba o painel
             for lamp in lamps:
                 lamp.music_stop()
@@ -664,6 +669,10 @@ class App:
             m["white"] = bool(value)
             if self.music_on:
                 self.music.set_white(m["white"])
+        elif key == "kick_only":
+            m["kick_only"] = bool(value)
+            if self.music_on:
+                self.music.set_kick_only(m["kick_only"])
         else:
             m["sensitivity"] = max(0, min(100, int(value)))
             if self.music_on:

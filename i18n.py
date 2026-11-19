@@ -121,6 +121,7 @@ PT = {
     "White flash": "Flash branco",
     "the beat": "a batida",
     "build-up": "a subida (build-up)",
+    "Flash only on the kick": "Flash só no bumbo",
 }
 
 ES = {
@@ -237,6 +238,7 @@ ES = {
     "White flash": "Destello blanco",
     "the beat": "el ritmo",
     "build-up": "la subida (build-up)",
+    "Flash only on the kick": "Destello solo en el bombo",
 }
 
 FR = {
@@ -353,6 +355,7 @@ FR = {
     "White flash": "Flash blanc",
     "the beat": "le rythme",
     "build-up": "la montée (build-up)",
+    "Flash only on the kick": "Flash seulement sur la grosse caisse",
 }
 
 DE = {
@@ -469,6 +472,7 @@ DE = {
     "White flash": "Weißer Blitz",
     "the beat": "dem Beat",
     "build-up": "dem Build-up",
+    "Flash only on the kick": "Blitz nur auf der Kick",
 }
 
 IT = {
@@ -585,6 +589,7 @@ IT = {
     "White flash": "Flash bianco",
     "the beat": "il ritmo",
     "build-up": "la salita (build-up)",
+    "Flash only on the kick": "Flash solo sulla cassa",
 }
 
 JA = {
@@ -701,6 +706,7 @@ JA = {
     "White flash": "白色フラッシュ",
     "the beat": "ビート",
     "build-up": "ビルドアップ",
+    "Flash only on the kick": "キックだけでフラッシュ",
 }
 
 ZH = {
@@ -817,6 +823,7 @@ ZH = {
     "White flash": "白光闪烁",
     "the beat": "节拍",
     "build-up": "铺垫段 (build-up)",
+    "Flash only on the kick": "只在底鼓闪烁",
 }
 
 TABLES = {"pt": PT, "es": ES, "fr": FR, "de": DE, "it": IT, "ja": JA, "zh": ZH}

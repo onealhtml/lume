@@ -66,6 +66,14 @@ RNN_CONF_A = 0.25        # confianca = media do pico da ativacao nas ultimas bat
 RNN_MIN = 0.06           # ...com a rede, SO ela da o flash (trocar de detector muda a fase e engasga);
                          # abaixo disso (ruido ~0.02: silencio, fala) nao pisca, so respira. Batida
                          # fraca da flash fraco. O buildup so deixa o flash mais forte, nunca muda o tempo
+# "so no bumbo": a rede da a grade (onde cai cada tempo) e a confianca; o flash sai no proprio golpe grave.
+# Golpe grave a ate 60 ms de um tempo da grade pisca na hora. Fora da grade (virada "tum tum tum") so pisca
+# o golpe que o classificador diz que e bumbo, no nivel dos bumbos da musica e com o estalo agudo deles (a
+# nota do baixo no contratempo nao tem estalo)
+KO_GRID_S = 0.06
+KO_REFR_S = 0.1          # golpes graves a menos disso sao o mesmo
+KO_FILL_LVL_DB = 0.0     # virada: grave no nivel tipico dos bumbos (ou acima)...
+KO_FILL_CLICK = 0.8      # ...e estalo de pelo menos 80 % do tipico (quando a musica tem estalo no bumbo)
 BUILD = 4                # buildup: nao e detector, e o estado "caixa acelerando sem bumbo"
 BUILD_NOKICK_S = 1.0     # buildup: sem bumbo ha 1 s...
 BUILD_WIN_S = 1.5        # ...e caixa/ataques (juntos, sem contar o mesmo golpe 2x) nos ultimos 1.5 s...
@@ -352,10 +360,14 @@ class MusicAnalyzer:
                 self._rnn = beattrack.OnlineBeatTracker()
             except Exception:  # noqa: BLE001 - modelo faltando ou corrompido: segue sem a rede
                 self._rnn = None
+        self.kick_only = False  # pisca so nas batidas com bumbo (e na caixa do buildup)
         self._reset_state()
 
     def set_sensitivity(self, s):
         self.sens = SensParams(s)
+
+    def set_kick_only(self, on):
+        self.kick_only = bool(on)
 
     def _kick_reset(self):
         self._klvl = None           # nivel, subida, estalo e queda do corpo tipicos dos bumbos desta musica
@@ -430,6 +442,9 @@ class MusicAnalyzer:
         self._rconf = 0.0           # confianca da rede de batida
         self._rdrive = False        # a rede conduz os flashes
         self._rpend = []            # batidas da rede esperando o fim do feed()
+        self._ranchor = None        # ultima batida da rede (grade do modo "so no bumbo")
+        self._lh_last = -1e9        # ultimo golpe grave visto (modo "so no bumbo")
+        self._kflash = -1e9         # ultimo flash de bumbo
         if getattr(self, "_rnn", None) is not None:
             self._rnn.reset()
 
@@ -444,7 +459,10 @@ class MusicAnalyzer:
         if not np.isfinite(x).all():
             x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         if self._rnn is not None:
-            self._rpend.extend(self._rnn.feed(x))
+            rb = self._rnn.feed(x)
+            if rb:
+                self._ranchor = rb[-1][0]
+            self._rpend.extend(rb)
         stage = np.concatenate((self._stage, x)) if self._stage.size else x
         fh, n, pn = self.fh, self.nfft, self.pn
         k = stage.size // fh
@@ -486,14 +504,17 @@ class MusicAnalyzer:
             self._sal = sal[i]
             self._fine(lv[i], share[i], e[i, 0], e[i, 2], tot[i], float(lv4[i]))
         for tb, a in self._rpend:
-            self._rnn_beat(a)
+            self._rnn_beat(a, tb)
         self._rpend = []
         self._publish(pk)
 
-    def _rnn_beat(self, a):
-        """Batida da rede (pico da ativacao a): a unica fonte de flash quando a rede existe."""
+    def _rnn_beat(self, a, tb):
+        """Batida da rede (pico da ativacao a, no tempo tb do audio): a unica fonte de flash quando a rede
+        existe. No modo so no bumbo: so a batida com golpe grave junto, e no buildup nenhuma (pisca a caixa)."""
         self._rconf += RNN_CONF_A * (a - self._rconf)
         self._rdrive = self._gate and self._rconf >= RNN_MIN
+        if self.kick_only:  # o flash sai nos golpes graves (_fine e _kick); a rede so da grade e confianca
+            return
         if self._rdrive:
             st = min(1.0, 0.3 + 0.7 * a / 0.5)
             if self._build:  # buildup: o flash vai ficando mais forte ate o drop
@@ -682,6 +703,11 @@ class MusicAnalyzer:
         tk = self._thr(0, k_odf, KICK_DELTA * delta, KICK_K)
         ts = self._thr(1, s_odf, SNARE_DELTA * delta)
         tb = self._thr(2, b_odf, BROAD_DELTA * delta)
+        # so no bumbo: golpe grave perto de um tempo da grade da rede pisca na hora
+        if self._rnn is not None and self.kick_only and gate and k_odf > tk and t - self._lh_last >= KO_REFR_S:
+            self._lh_last = t
+            if self._ko_ok() and self._grid_dist(t) <= KO_GRID_S:
+                self._ko_flash(t, min(1.0, 0.4 + 0.3 * (k_odf / max(tk, 1e-6) - 1.0)))
 
         # nivel tipico dos bumbos cai devagar; sem bumbo ha 1.2 s, rapido (volume baixou, fim da parte com bumbo)
         if self._klvl is not None:
@@ -764,7 +790,29 @@ class MusicAnalyzer:
         target = 0.0 if self._driver is None else 1.0 if self._driver == KICK else min(1.0, 0.4 + self._dscore)
         self._clar += (target - self._clar) * (self._a_clar_up if target > self._clar else self._a_clar_down)
 
+    def _ko_ok(self):
+        return self._rdrive and not self._build
+
+    def _grid_dist(self, t):
+        """Distancia (s) de t ao tempo mais proximo da grade da rede."""
+        if self._ranchor is None:
+            return 1e9
+        per = 60.0 / self._rnn.bpm
+        return abs(((t - self._ranchor) / per + 0.5) % 1.0 - 0.5) * per
+
+    def _ko_flash(self, t, st):
+        if t - self._kflash < KO_REFR_S:
+            return
+        self._kflash = t
+        if self._hit is None or st > self._hit[1]:
+            self._hit = [KICK, st]
+
     def _kick(self, t, c):
+        # so no bumbo: bumbo fora da grade (virada) pisca se tem nivel e estalo de bumbo desta musica
+        if (self._rnn is not None and self.kick_only and self._ko_ok() and self._klvl is not None
+                and self._grid_dist(c[0]) > KO_GRID_S and c[2] >= self._klvl - KO_FILL_LVL_DB
+                and (self._khigh < KICK_CLICK_DB or c[6] >= KO_FILL_CLICK * self._khigh)):
+            self._ko_flash(t, min(1.0, 0.5 + 0.5 * c[1] / max(1e-6, self._kodf or c[1])))
         st = 1.0 if not self._kodf else min(1.0, 0.5 + 0.5 * c[1] / max(1e-6, self._kodf / 0.85))
         # sem ninguem conduzindo o bumbo assume na hora (e no drop, logo depois do buildup); de outro, quando
         # ficar regular
@@ -861,7 +909,11 @@ class MusicAnalyzer:
         if keep:
             self._ev_add(layer, t, weight, sal)
         strength = max(0.15, strength)
-        if self._rnn is not None:  # com a rede so ela pisca: os detectores so informam (buildup, drop)
+        if self._rnn is not None:  # com a rede so ela pisca: os detectores so informam (buildup, drop)...
+            # ...menos a caixa do buildup no modo so no bumbo: strobe na caixa ate o drop
+            if self.kick_only and self._build and layer in (SNARE, BROAD) and t - self._bfire >= BUILD_GAP_S:
+                self._bfire = t
+                self._hit = [BUILD, 0.3 + 0.7 * self._bprog]
             return
         if self._build and layer in (SNARE, BROAD):
             # buildup: cada caixa e um flash do strobe (que fica mais forte), no ritmo que a lampada aguenta
@@ -970,7 +1022,8 @@ class MusicAnalyzer:
                      beat_wall=wall if hit else old.beat_wall, layer=LAYERS[hit[0]] if hit else "",
                      sub=sub is not None, sub_strength=sub[1] if sub else 0.0, sub_layer=LAYERS[sub[0]] if sub else "",
                      onset=onset > 0, onset_strength=onset,
-                     driver=("build" if self._build and (rdrive or self._rnn is None) else "beat" if rdrive
+                     driver=("build" if self._build and (rdrive or self._rnn is None) else
+                             ("kick" if self.kick_only else "beat") if rdrive
                              else "" if self._rnn is not None else LAYERS[drv] if drv is not None else ""),
                      tempo_bpm=(60.0 / per if rdrive else 0.0 if self._rnn is not None else
                                 60.0 / self._kper if drv == KICK and self._kfit >= GRID_FIT and self._kper > 0
@@ -1286,9 +1339,11 @@ class MusicSync:
     def running(self):
         return self._thread is not None
 
-    def start(self, lamps, style, sensitivity, base_hue, base_sat, max_bright, dp="27", white=True):
+    def start(self, lamps, style, sensitivity, base_hue, base_sat, max_bright, dp="27", white=True,
+              kick_only=False):
         if self.running:  # ja ligado: so ajusta
             self.set_white(white)
+            self.set_kick_only(kick_only)
             self.set_style(style)
             self.set_sensitivity(sensitivity)
             self.set_base(base_hue, base_sat)
@@ -1301,6 +1356,7 @@ class MusicSync:
         self._gen += 1
         gen = self._gen
         an = self._an = MusicAnalyzer(loopback.SAMPLERATE, sensitivity)
+        an.set_kick_only(kick_only)
         with self._lock:
             self._mapper = LightMapper(style if style in STYLES else STYLES[-1], sensitivity, base_hue, base_sat,
                                        max_bright, n_lamps=len(joined))
@@ -1375,6 +1431,11 @@ class MusicSync:
         with self._lock:
             if self._mapper:
                 self._mapper.set_white(on)
+
+    def set_kick_only(self, on):
+        an = self._an
+        if an is not None:
+            an.set_kick_only(on)
 
     def set_max_bright(self, pct):
         with self._lock:

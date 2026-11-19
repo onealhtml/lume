@@ -16,7 +16,7 @@ FROZEN = getattr(sys, "frozen", False)  # rodando do executavel gerado pelo PyIn
 # arquivos do app (ui/, assets/): no executavel ficam na pasta temporaria/interna do PyInstaller
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 MUSIC_STYLES = ("pulse", "flow", "party")
-MUSIC_DEFAULTS = {"style": "party", "sensitivity": 50, "dp": "27", "white": True}  # white: flash nos LEDs brancos  # dp: "28" se a lampada ignora o 27
+MUSIC_DEFAULTS = {"style": "party", "sensitivity": 50, "dp": "27", "white": True, "kick_only": True}  # white: flash nos LEDs brancos  # dp: "28" se a lampada ignora o 27
 # vidro no Windows: "acrylic" ou "blur"
 DEFAULT_CONFIG = {"lamps": [], "selected": "", "glass": "acrylic", "music": dict(MUSIC_DEFAULTS)}
 LAMP_DEFAULTS = {"id": "", "key": "", "name": "", "ip": "Auto", "last_ip": "", "version": "3.5"}
@@ -64,7 +64,7 @@ def load_config():
         sens = MUSIC_DEFAULTS["sensitivity"]
     cfg["music"] = dict(m, style=m.get("style") if m.get("style") in MUSIC_STYLES else MUSIC_DEFAULTS["style"],
                         sensitivity=sens, dp=str(m.get("dp")) if str(m.get("dp")) in ("27", "28") else "27",
-                        white=m.get("white") is not False)
+                        white=m.get("white") is not False, kick_only=m.get("kick_only") is not False)
     return cfg
 
 

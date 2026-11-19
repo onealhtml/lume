@@ -1068,7 +1068,8 @@ class LightMapper:
             self._vs[i] = vs
             h, s = hs[i]
             # branco so no pico do flash: resto de branco entre os golpes desbotaria a cor
-            w = int(round(self.vmax * min(1.0, fl[i]) * (0.4 + 0.6 * depth))) if wf and fx >= 1.0 else 0
+            # sempre forte, independente do brilho do painel: 100 % no golpe mais forte, ~80 % no mais fraco
+            w = int(round(100 * min(1.0, 0.6 + 0.4 * fl[i] / max(sp.flash, 1e-6)))) if wf and fx >= 1.0 and fl[i] > 0 else 0
             out.append((int(round(h)) % 360, int(round(s)), max(FLOOR_V, min(100, int(round(vs)))), w))
 
         # que quadro e este: golpe, queda do flash / cor de nota nova (rapido) ou comum

@@ -135,6 +135,7 @@ python -m venv .venv
 | `ui/Main.qml` | the interface (Qt Quick) |
 | `core.py` | settings, start with the system and the connection to the lamp |
 | `music.py` | music mode: finds the beat and picks the colours |
+| `beattrack.py` | beat tracking: madmom's online neural beat tracker, ported to NumPy |
 | `loopback.py` | captures the sound the PC is playing (Windows and Linux) |
 | `i18n.py` | translations; the code is written in English |
 | `smartlife_qr.py` | Smart Life QR login to get the lamps and their local keys |
@@ -148,3 +149,10 @@ three systems and publishes a Release with that version's section of the changel
 
 Settings, including the lamp's local key, live outside the repository: `%APPDATA%\Lume` (Windows),
 `~/.config/lume` (Linux) or `~/Library/Application Support/Lume` (macOS).
+
+## Credits
+
+Music mode finds the beat with the online beat-tracking model from
+[madmom](https://github.com/CPJKU/madmom) (Böck, Krebs and Widmer), ported to NumPy in `beattrack.py`.
+The model weights (`assets/beats_online.npz`) are licensed CC BY-NC-SA 4.0, so they may not be used
+commercially; see `assets/beats_online.LICENSE`.

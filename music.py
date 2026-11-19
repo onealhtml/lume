@@ -58,9 +58,13 @@ FINE_EDGES = (35.0, 150.0, 400.0, 2000.0, 8000.0, 16000.0)  # grave, corpo, medi
 LAG = 3                  # subida contra o quadro de 16 ms atras: o ataque do bumbo cabe, um inchaco de 100 ms nao
 BODY_W = 0.6             # golpe grave = subida do grave + 0.6 * a do corpo (onde o bumbo comeca a varredura)
 STATS_S = 1.5            # janela das estatisticas do limiar adaptativo de cada detector
-LAYERS = ("kick", "bass", "snare", "broadband", "build")
+LAYERS = ("kick", "bass", "snare", "broadband", "build", "beat")
 A_WEIGHT_DB = (-20.0, -6.0, 0.0, 1.0, -3.0)  # ponderacao A aproximada das 5 bandas finas: forca percebida
 KICK, BASSN, SNARE, BROAD = range(4)
+BEAT = 5                 # batida da rede (beattrack, o modelo online do madmom)
+RNN_CONF_A = 0.25        # confianca = media do pico da ativacao nas ultimas batidas (~4)...
+RNN_ON, RNN_OFF = 0.15, 0.10  # ...a rede conduz acima de 0.15 e larga abaixo de 0.10 (batida real: ~0.3;
+                         # ruido: ~0.02). Abaixo disso, ou com fala, os detectores de sempre conduzem
 BUILD = 4                # buildup: nao e detector, e o estado "caixa acelerando sem bumbo"
 BUILD_NOKICK_S = 1.0     # buildup: sem bumbo ha 1 s...
 BUILD_WIN_S = 1.5        # ...e caixa/ataques (juntos, sem contar o mesmo golpe 2x) nos ultimos 1.5 s...
@@ -338,6 +342,13 @@ class MusicAnalyzer:
 
         self._lock = threading.Lock()
         self.beat_event = threading.Event()
+        self._rnn = None  # rede de batida: so na taxa dela e com o modelo presente; senao os detectores
+        if sr == 44100:
+            try:
+                import beattrack
+                self._rnn = beattrack.OnlineBeatTracker()
+            except Exception:  # noqa: BLE001 - modelo faltando ou corrompido: segue sem a rede
+                self._rnn = None
         self._reset_state()
 
     def set_sensitivity(self, s):
@@ -413,6 +424,11 @@ class MusicAnalyzer:
         self._hit = None            # golpes deste feed(): [layer, forca], [sub layer, forca], onset
         self._sub = None
         self._onset = 0.0
+        self._rconf = 0.0           # confianca da rede de batida
+        self._rdrive = False        # a rede conduz os flashes
+        self._rpend = []            # batidas da rede esperando o fim do feed()
+        if getattr(self, "_rnn", None) is not None:
+            self._rnn.reset()
 
     def feed(self, block):
         """block: (amostras, canais) ou (amostras,), float ou int16."""
@@ -424,6 +440,8 @@ class MusicAnalyzer:
         x = x.astype(np.float32, copy=False)
         if not np.isfinite(x).all():
             x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        if self._rnn is not None:
+            self._rpend.extend(self._rnn.feed(x))
         stage = np.concatenate((self._stage, x)) if self._stage.size else x
         fh, n, pn = self.fh, self.nfft, self.pn
         k = stage.size // fh
@@ -464,7 +482,20 @@ class MusicAnalyzer:
                     self._pitch(buf[ends[i] - pn:ends[i]])
             self._sal = sal[i]
             self._fine(lv[i], share[i], e[i, 0], e[i, 2], tot[i], float(lv4[i]))
+        for tb, a in self._rpend:
+            self._rnn_beat(a)
+        self._rpend = []
         self._publish(pk)
+
+    def _rnn_beat(self, a):
+        """Batida da rede (pico da ativacao a): com confianca, e ela que da o flash (menos no buildup)."""
+        self._rconf += RNN_CONF_A * (a - self._rconf)
+        on = RNN_OFF if self._rdrive else RNN_ON
+        self._rdrive = self._gate and self._pause < PAUSE_MAX and self._rconf >= on
+        if self._rdrive and not self._build:
+            st = min(1.0, 0.3 + 0.7 * a / 0.5)
+            if self._hit is None or st > self._hit[1]:
+                self._hit = [BEAT, st]
 
     def _process(self, frame):
         dt, sp = self.dt, self.sens
@@ -832,7 +863,7 @@ class MusicAnalyzer:
                 self._bfire = t
                 self._hit = [BUILD, 0.3 + 0.7 * self._bprog]
             return
-        if layer == self._driver or (layer == KICK and self._driver == BASSN):
+        if not self._rdrive and (layer == self._driver or (layer == KICK and self._driver == BASSN)):
             if self._hit is None or strength > self._hit[1]:
                 self._hit = [layer, strength]
         elif self._sub is None or strength > self._sub[1]:
@@ -923,16 +954,21 @@ class MusicAnalyzer:
         if last is not None:
             k = max(1, math.ceil((self._t - last) / per - 0.15))
             nxt = wall + (last + k * per - self._t)
+        rdrive = self._rdrive and not self._build
+        if rdrive:  # a rede conduz: andamento e proxima batida pelo estado do HMM dela
+            per = 60.0 / self._rnn.bpm
+            nxt = wall + (1.0 - self._rnn.phase) * per
         o = Features(wall=wall, active=self._act, gate=self._gate, loud=self._env[0], bass=self._env[1],
                      mid=self._env[2], treble=self._env[3], punch=self._punch, balance=self._bal, bands=self._bars,
                      beat=hit is not None, beats=int(hit is not None), beat_strength=hit[1] if hit else 0.0,
                      beat_wall=wall if hit else old.beat_wall, layer=LAYERS[hit[0]] if hit else "",
                      sub=sub is not None, sub_strength=sub[1] if sub else 0.0, sub_layer=LAYERS[sub[0]] if sub else "",
                      onset=onset > 0, onset_strength=onset,
-                     driver="build" if self._build else LAYERS[drv] if drv is not None else "",
-                     tempo_bpm=(60.0 / self._kper if drv == KICK and self._kfit >= GRID_FIT and self._kper > 0
+                     driver="build" if self._build else "beat" if rdrive else LAYERS[drv] if drv is not None else "",
+                     tempo_bpm=(60.0 / per if rdrive else
+                                60.0 / self._kper if drv == KICK and self._kfit >= GRID_FIT and self._kper > 0
                                 else 60.0 / per if per > 0.2 else 0.0), period=per, clarity=self._clar,
-                     locked=drv is not None or self._build, next_beat=None if self._build else nxt, note=self._note, note_conf=self._nconf,
+                     locked=drv is not None or self._build or rdrive, next_beat=None if self._build else nxt, note=self._note, note_conf=self._nconf,
                      note_n=self._note_n)
         with self._lock:
             self._out = o

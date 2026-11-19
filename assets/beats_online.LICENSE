@@ -1,0 +1,12 @@
+beats_online.npz: the weights of the 8 online beat-tracking LSTMs (BEATS_LSTM) and the matching filterbank
+from madmom (https://github.com/CPJKU/madmom), converted to a plain NumPy archive for Lume's beattrack.py.
+
+Model: Sebastian Böck, Florian Krebs and Gerhard Widmer, "A Multi-Model Approach to Beat Tracking
+Considering Heterogeneous Music Styles" (ISMIR 2014) and "Accurate Tempo Estimation based on Recurrent
+Neural Networks and Resonating Comb Filters" (ISMIR 2015); beat tracking HMM by Florian Krebs, Sebastian
+Böck and Gerhard Widmer, "An Efficient State Space Model for Joint Tempo and Meter Tracking" (ISMIR 2015).
+
+The madmom model files are licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+International (CC BY-NC-SA 4.0): https://creativecommons.org/licenses/by-nc-sa/4.0/
+This converted file is distributed under the same license: it may not be used for commercial purposes.
+The madmom source code is BSD-licensed; beattrack.py is a NumPy port of its online beat-tracking path.

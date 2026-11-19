@@ -119,6 +119,8 @@ PT = {
     "Mixed": "tudo junto",
     "No steady beat": "Sem batida constante",
     "White flash": "Flash branco",
+    "the beat": "a batida",
+    "build-up": "a subida (build-up)",
 }
 
 ES = {
@@ -233,6 +235,8 @@ ES = {
     "Mixed": "todo junto",
     "No steady beat": "Sin ritmo constante",
     "White flash": "Destello blanco",
+    "the beat": "el ritmo",
+    "build-up": "la subida (build-up)",
 }
 
 FR = {
@@ -347,6 +351,8 @@ FR = {
     'Mixed': "l'ensemble",
     "No steady beat": "Pas de rythme régulier",
     "White flash": "Flash blanc",
+    "the beat": "le rythme",
+    "build-up": "la montée (build-up)",
 }
 
 DE = {
@@ -461,6 +467,8 @@ DE = {
     "Mixed": "alles zusammen",
     "No steady beat": "Kein gleichmäßiger Beat",
     "White flash": "Weißer Blitz",
+    "the beat": "dem Beat",
+    "build-up": "dem Build-up",
 }
 
 IT = {
@@ -575,6 +583,8 @@ IT = {
     "Mixed": "tutto insieme",
     "No steady beat": "Nessun ritmo costante",
     "White flash": "Flash bianco",
+    "the beat": "il ritmo",
+    "build-up": "la salita (build-up)",
 }
 
 JA = {
@@ -689,6 +699,8 @@ JA = {
     "Mixed": "全体",
     "No steady beat": "一定のビートなし",
     "White flash": "白色フラッシュ",
+    "the beat": "ビート",
+    "build-up": "ビルドアップ",
 }
 
 ZH = {
@@ -803,6 +815,8 @@ ZH = {
     "Mixed": "整体",
     "No steady beat": "没有稳定的节拍",
     "White flash": "白光闪烁",
+    "the beat": "节拍",
+    "build-up": "铺垫段 (build-up)",
 }
 
 TABLES = {"pt": PT, "es": ES, "fr": FR, "de": DE, "it": IT, "ja": JA, "zh": ZH}

@@ -122,3 +122,10 @@ tinytuya) acompanham mais devagar.
 ## Rodar pelo código
 
 Detalhes de desenvolvimento e o que é cada arquivo estão no [README em inglês](README.md#run-from-source).
+
+## Créditos
+
+O modo música acha a batida com o modelo online de detecção de batida do
+[madmom](https://github.com/CPJKU/madmom) (Böck, Krebs e Widmer), portado para NumPy no `beattrack.py`.
+Os pesos do modelo (`assets/beats_online.npz`) são CC BY-NC-SA 4.0: não podem ser usados comercialmente
+(veja `assets/beats_online.LICENSE`).

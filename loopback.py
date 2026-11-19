@@ -7,8 +7,8 @@ import threading
 import time
 import warnings
 
-SAMPLERATE = 48000
-BLOCK = 1024           # 21 ms a 48 kHz
+SAMPLERATE = 44100  # a taxa do modelo de batida (beattrack); o sistema converte
+BLOCK = 1024           # 23 ms a 44.1 kHz
 POLL_DEFAULT_S = 2.0   # de quanto em quanto tempo confere se a saida padrao mudou
 STALL_S = 0.25         # record() parado mais que isso: o servidor acumulou audio velho, reabrir zera
 IS_WINDOWS = sys.platform == "win32"
